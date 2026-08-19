@@ -478,6 +478,7 @@ async def resolve_voting(g):
     max_v = max(counts.values())
     cands = [u for u, c in counts.items() if c == max_v]
 
+    # ПОВНІСТЮ СУВОРА НІЧИЯ БЕЗ ЖОДНИХ ПЕРЕСТРІЛОК
     if len(cands) > 1:
         names_list = ", ".join([f"{g['players'][c]['number']}. {g['players'][c]['name']}" for c in cands])
         await finish_voting(g, f"⚖️ **НІЧИЯ!** Між кандидатами ({names_list}) рівна кількість голосів. Нікого не вигнано.")
