@@ -107,31 +107,49 @@ def vote_kb(candidates=None):
             for uid, p in game["players"].items() if uid in allowed and p["alive"]]
     return InlineKeyboardMarkup(inline_keyboard=btns)
 
-# Команди
+# КОМАНДИ СТАРТУ ТА СКАСУВАННЯ (З ОБНУЛЕННЯМ СТАНУ)
 @dp.message(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}), F.text.regexp(r"^/mafia($|@)"))
 async def cmd_start_game(message: Message):
+    cancel_timer()
+    await set_chat_locked(False) # Обов'язково розблоковуємо чат на випадок зависання попередньої гри
+    
     game["status"] = "lobby"
     game["chat_id"] = message.chat.id
     game["players"].clear()
     game["mafia_votes"].clear()
+    game["doctor_target"] = None
+    game["sheriff_action"] = None
     game["votes"].clear()
-    cancel_timer()
-    await set_chat_locked(False)
-    await message.answer("🎴 НОВА ГРА В МАФІЮ\n\nНатискайте «Увійти в гру» (мінімум 4 гравці).", reply_markup=lobby_kb())
+    game["runoff"] = None
+
+    await message.answer(
+        "🎴 НОВА ГРА В МАФІЮ\n\n"
+        "Натискайте «Увійти в гру» (мінімум 4 гравці).\n"
+        "*(Не забудьте написати боту в ЛС, щоб він міг надсилати ролі!)*", 
+        reply_markup=lobby_kb()
+    )
 
 @dp.message(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}), F.text.regexp(r"^/cancel($|@)"))
 async def cmd_cancel(message: Message):
+    chat_id = game["chat_id"] or message.chat.id
     cancel_timer()
+    
     game["status"] = "idle"
-    game["players"].clear()
     game["chat_id"] = None
+    game["players"].clear()
+    game["mafia_votes"].clear()
+    game["doctor_target"] = None
+    game["sheriff_action"] = None
+    game["votes"].clear()
+    game["runoff"] = None
+
     await set_chat_locked(False)
-    await message.answer("❌ Гру скасовано.")
+    await message.answer("❌ Гру примусово скасовано. Чат розблоковано. Можна розпочати нову за командою /mafia")
 
 @dp.callback_query(F.data == "join")
 async def cb_join(callback: CallbackQuery):
     if game["status"] != "lobby":
-        return await callback.answer("Зараз немає набору.", show_alert=True)
+        return await callback.answer("Зараз немає набору в гру.", show_alert=True)
     uid = callback.from_user.id
     if uid in game["players"]:
         return await callback.answer("Ти вже у грі!", show_alert=True)
@@ -184,7 +202,7 @@ async def start_night():
     game["sheriff_action"] = None
     await set_chat_locked(True)
 
-    await bot.send_message(game["chat_id"], "🌙 НІЧ\n\n🔒 Чат закритий. Ролі у ЛС.")
+    await bot.send_message(game["chat_id"], "🌙 НІЧ\n\n🔒 Чат закритий у групі. Ролі та ходи надіслано в ЛС!")
     mafia_team = "\n".join(f"• {p['name']}" for p in game["players"].values() if p["role"] == "mafia")
 
     for uid, p in game["players"].items():
@@ -193,13 +211,13 @@ async def start_night():
             if p["role"] == "mafia":
                 await bot.send_message(uid, f"🔪 **МАФІЯ**\nКоманда:\n{mafia_team}\n\nОбери жертву:\n\n{alive_text()}", reply_markup=mafia_kb())
             elif p["role"] == "doctor":
-                await bot.send_message(uid, "🩺 **ЛІКАР**\nОбери кого лікувати:", reply_markup=doctor_kb())
+                await bot.send_message(uid, f"🩺 **ЛІКАР**\nОбери кого лікувати:\n\n{alive_text()}", reply_markup=doctor_kb())
             elif p["role"] == "sheriff":
-                await bot.send_message(uid, "🕵️ **ШЕРИФ**\nОбери дію:", reply_markup=sheriff_kb(uid))
+                await bot.send_message(uid, f"🕵️ **ШЕРИФ**\nОбери дію:\n\n{alive_text()}", reply_markup=sheriff_kb(uid))
             else:
-                await bot.send_message(uid, "😇 **МИРНИЙ**\nСпи мирно.")
+                await bot.send_message(uid, "😇 **МИРНИЙ ЖИТЕЛЬ**\nСпи спокійно, місто засинає...")
         except Exception:
-            pass
+            await bot.send_message(game["chat_id"], f"⚠️ Гравець {p['name']} не відкрив ЛС з ботом, тому не отримав роль!")
 
     start_timer(40, resolve_night)
 
@@ -218,7 +236,7 @@ async def cb_mafia(callback: CallbackQuery):
     if game["status"] != "night": return await callback.answer("Зараз не ніч.", show_alert=True)
     val = callback.data.split(":")[1]
     game["mafia_votes"][callback.from_user.id] = "skip" if val == "skip" else int(val)
-    try: await callback.message.edit_text("🔪 Вибір збережено")
+    try: await callback.message.edit_text("🔪 Вибір мафії збережено.")
     except Exception: pass
     await callback.answer("Збережено")
     await check_night_ready()
@@ -228,7 +246,7 @@ async def cb_doctor(callback: CallbackQuery):
     if game["status"] != "night": return await callback.answer("Зараз не ніч.", show_alert=True)
     val = callback.data.split(":")[1]
     game["doctor_target"] = "skip" if val == "skip" else int(val)
-    try: await callback.message.edit_text("🩺 Вибір збережено")
+    try: await callback.message.edit_text("🩺 Вибір лікаря збережено.")
     except Exception: pass
     await callback.answer("Збережено")
     await check_night_ready()
@@ -239,18 +257,18 @@ async def cb_sheriff(callback: CallbackQuery):
     prefix, val = callback.data.split(":")
     if val == "skip":
         game["sheriff_action"] = ("skip", None)
-        try: await callback.message.edit_text("💤 Пропуск")
+        try: await callback.message.edit_text("💤 Шериф нічого не робив цієї ночі.")
         except Exception: pass
     else:
         target = int(val)
         if prefix == "chk":
             res = "🔪 МАФІЯ" if game["players"][target]["role"] == "mafia" else "😇 НЕ МАФІЯ"
             game["sheriff_action"] = ("check", target)
-            try: await callback.message.edit_text(f"🔍 Результат: {res}")
+            try: await callback.message.edit_text(f"🔍 Результат перевірки: {res}")
             except Exception: pass
         else:
             game["sheriff_action"] = ("shot", target)
-            try: await callback.message.edit_text("🔫 Постріл збережено")
+            try: await callback.message.edit_text("🔫 Постріл шерифа збережено.")
             except Exception: pass
     await callback.answer("Збережено")
     await check_night_ready()
@@ -266,12 +284,12 @@ async def resolve_night():
 
     m_target = max(counts, key=counts.get) if counts else None
     d_target = game["doctor_target"]
-    text = "🌅 **РАНОК**\n\n"
+    text = "🌅 **РАНОК У МІСТІ**\n\n"
 
     if m_target is None or m_target == "skip":
-        text += "🔪 Мафія нікого не вбила.\n"
+        text += "🔪 Мафія нікого не вбила цієї ночі.\n"
     elif m_target == d_target:
-        text += f"🩺 Лікар врятував **{game['players'][m_target]['name']}**!\n"
+        text += f"🩺 Лікар врятував **{game['players'][m_target]['name']}** від кулі мафії!\n"
     else:
         p = game["players"][m_target]
         p["alive"] = False
@@ -283,10 +301,10 @@ async def resolve_night():
         if st in game["players"] and game["players"][st]["alive"]:
             sp = game["players"][st]
             if st == d_target:
-                text += f"🩺 Лікар врятував **{sp['name']}** від шерифа!\n"
+                text += f"🩺 Лікар також врятував **{sp['name']}** від пострілу шерифа!\n"
             else:
                 sp["alive"] = False
-                text += f"🔫 Шериф застрелив **{sp['name']}** ({ROLES[sp['role']]}).\n"
+                text += f"🔫 Шериф вночі здійснив постріл і вбив **{sp['name']}** ({ROLES[sp['role']]}).\n"
 
     text += "\n" + alive_text()
     await set_chat_locked(False)
@@ -297,16 +315,16 @@ async def resolve_night():
     game["status"] = "day"
     await bot.send_message(
         game["chat_id"], 
-        "🗣 **ДЕНЬ**\n💬 Чат відкритий на 60 секунд.",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⏩ Завершити обговорення", callback_data="force_vote")]])
+        "🗣 **ДЕНЬ**\n💬 Чат відкритий для обговорення на 60 секунд.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⏩ Завершити обговорення достроково", callback_data="force_vote")]])
     )
     start_timer(60, start_voting)
 
 @dp.callback_query(F.data == "force_vote")
 async def cb_force_vote(callback: CallbackQuery):
-    if game["status"] != "day": return await callback.answer("Не день.", show_alert=True)
+    if game["status"] != "day": return await callback.answer("Зараз не день.", show_alert=True)
     cancel_timer()
-    await callback.answer()
+    await callback.answer("Переходимо до голосування!")
     await start_voting()
 
 async def start_voting(candidates=None):
@@ -315,21 +333,21 @@ async def start_voting(candidates=None):
     game["status"] = "voting"
     game["votes"].clear()
     await set_chat_locked(True)
-    await bot.send_message(game["chat_id"], "⚖️ **ГОЛОСУВАННЯ**\n🔒 Чат закритий.", reply_markup=vote_kb(candidates))
+    await bot.send_message(game["chat_id"], "⚖️ **ГОЛОСУВАННЯ**\n🔒 Чат закрито. Обирайте підозрюваного в групі:", reply_markup=vote_kb(candidates))
     start_timer(30, resolve_voting)
 
 @dp.callback_query(F.data.startswith("v:"))
 async def cb_vote(callback: CallbackQuery):
-    if game["status"] != "voting": return await callback.answer("Не голосування.", show_alert=True)
+    if game["status"] != "voting": return await callback.answer("Зараз не голосування.", show_alert=True)
     uid = callback.from_user.id
     if uid not in game["players"] or not game["players"][uid]["alive"]:
         return await callback.answer("Мертві не голосують.", show_alert=True)
     
     target = int(callback.data.split(":")[1])
     game["votes"][uid] = target
-    try: await callback.message.edit_text(f"🗳 Голос за {game['players'][target]['name']} прийнято.")
+    try: await callback.message.edit_reply_markup(reply_markup=None)
     except Exception: pass
-    await callback.answer("Прийнято")
+    await callback.answer(f"Голос за {game['players'][target]['name']} прийнято!")
 
     if set(game["votes"].keys()) >= alive_ids():
         cancel_timer()
@@ -355,16 +373,18 @@ async def resolve_voting():
     if len(cands) > 1:
         if game["runoff"]:
             game["runoff"] = None
-            await finish_voting("⚖️ Нічия. Ніхто не вигнаний.")
+            await finish_voting("⚖️ Нічия під час перестрілки. Місто нікого не виганяє.")
         else:
             game["runoff"] = cands
+            names_str = ", ".join([f"{game['players'][c]['number']}. {game['players'][c]['name']}" for c in cands])
+            await bot.send_message(game["chat_id"], f"⚖️ **НІЧИЯ!** Голоси розділилися між: {names_str}.\nЗапускаємо додатковий раунд голосування!")
             await start_voting(cands)
         return
 
     exiled = cands[0]
     game["players"][exiled]["alive"] = False
     game["runoff"] = None
-    await finish_voting(f"⚖️ Вигнано **{game['players'][exiled]['name']}** ({ROLES[game['players'][exiled]['role']]})")
+    await finish_voting(f"⚖️ Місто вигнало гравця **{game['players'][exiled]['name']}**.\nЙого роль була: **{ROLES[game['players'][exiled]['role']]**")
 
 async def finish_voting(text):
     await set_chat_locked(False)
@@ -380,19 +400,19 @@ async def check_win():
         cancel_timer()
         game["status"] = "finished"
         await set_chat_locked(False)
-        await bot.send_message(game["chat_id"], "🎉 **ПЕРЕМОГА МИРНИХ!**\n\n" + role_summary())
+        await bot.send_message(game["chat_id"], "🎉 **ПЕРЕМОГА МИРНИХ!** Всю мафію знищено!\n\n" + role_summary())
         return True
     if mafia >= others:
         cancel_timer()
         game["status"] = "finished"
         await set_chat_locked(False)
-        await bot.send_message(game["chat_id"], "🔪 **ПЕРЕМОГА МАФІЇ!**\n\n" + role_summary())
+        await bot.send_message(game["chat_id"], "🔪 **ПЕРЕМОГА МАФІЇ!** Вони захопили місто!\n\n" + role_summary())
         return True
     return False
 
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
-    print("Бот запущено!")
+    print("Бот запущено і повністю готовий до роботи!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
