@@ -260,7 +260,7 @@ async def night_timer():
     if game["status"] == "night":
         await resolve_night()
 
-# --- ОБРОБКА НІЧНИХ ДІЙ (З БЕЗПЕЧНИМИ ПЕРЕВІРКАМИ) ---
+# --- ОБРОБКА НІЧНИХ ДІЙ (З ПЕРЕВІРКОЮ ЖИТТЯ ГРАВЦЯ) ---
 @dp.callback_query(F.data.startswith(("mkel_", "heal_", "check_", "shot_", "heal_skip")))
 async def cb_night_actions(callback: CallbackQuery):
     if game["status"] != "night":
@@ -269,9 +269,9 @@ async def cb_night_actions(callback: CallbackQuery):
     user_id = callback.from_user.id
     player = game["players"].get(user_id)
     
-    # 1. Перевірка, чи гравець взагалі є в грі та чи він живий
+    # Перевірка, чи гравець існує і чи він ЖИВИЙ
     if not player or not player["alive"]:
-        return await callback.answer("❌ Ви мертві або не берете участі у грі!", show_alert=True)
+        return await callback.answer("❌ Ви мертві і не можете здійснювати дії!", show_alert=True)
         
     data = callback.data.split("_")
     action = data[0]
@@ -286,7 +286,6 @@ async def cb_night_actions(callback: CallbackQuery):
 
     choice_text = "✅ Вибір збережено."
 
-    # 2. Сувора перевірка ролей та валідності цілей
     if action == "mkel":
         if player["role"] != "mafia":
             return await callback.answer("❌ Ця дія доступна лише мафії!", show_alert=True)
@@ -297,6 +296,10 @@ async def cb_night_actions(callback: CallbackQuery):
             if not target_player or not target_player["alive"]:
                 return await callback.answer("❌ Цей гравець уже мертвий!", show_alert=True)
                 
+        # Додатково переконуємося в реальному часі, що мафія досі жива
+        if not player["alive"]:
+            return await callback.answer("❌ Ви загинули і більше не голосуєте!", show_alert=True)
+            
         game["mafia_votes"][user_id] = target_val
         
         if target_val == "skip":
@@ -310,6 +313,9 @@ async def cb_night_actions(callback: CallbackQuery):
     elif action in ["heal", "heal_skip"]:
         if player["role"] != "doctor":
             return await callback.answer("❌ Ця дія доступна лише доктору!", show_alert=True)
+            
+        if not player["alive"]:
+            return await callback.answer("❌ Ви загинули!", show_alert=True)
             
         if action == "heal_skip":
             game["doctor_target"] = "skip"
@@ -329,6 +335,9 @@ async def cb_night_actions(callback: CallbackQuery):
     elif action in ["check", "shot"]:
         if player["role"] != "sheriff":
             return await callback.answer("❌ Ця дія доступна лише шерифу!", show_alert=True)
+            
+        if not player["alive"]:
+            return await callback.answer("❌ Ви загинули!", show_alert=True)
             
         if game["sheriff_action_done"]:
             return await callback.answer("Ти вже зробив дію цієї ночі!", show_alert=True)
