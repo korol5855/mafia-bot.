@@ -25,7 +25,7 @@ game = {
     "status": "idle",
     "chat_id": None,
     "players": {},
-    "timer_thread": None,
+    "timer_id": 0,
     "mafia_votes": {},
     "doctor_target": None,
     "doctor_self_used": False,
@@ -42,9 +42,28 @@ ROLES = {
     "civilian": "Мирний житель 😇",
 }
 
+# =========================
+# ТАЙМЕРИ НА ПОТОКАХ (ЗАЛІЗОБЕТОННІ)
+# =========================
+
 def cancel_timer():
-    # Оскільки використовуємо потоки, просто скидаємо стан
-    game["timer_thread"] = None
+    game["timer_id"] += 1  # Збільшуємо ID, щоб скасувати попередні потоки таймерів
+
+def start_safe_timer(seconds, callback_coro):
+    cancel_timer()
+    current_id = game["timer_id"]
+
+    def worker():
+        time.sleep(seconds)
+        if game["timer_id"] == current_id:
+            # Безпечно передаємо задачу в головний цикл подій боту
+            asyncio.run_coroutine_threadsafe(callback_coro(), bot.session.loop)
+
+    threading.Thread(target=worker, daemon=True).start()
+
+# =========================
+# ДОПОМІЖНІ ФУНКЦІЇ
+# =========================
 
 def alive_ids():
     return {uid for uid, p in game["players"].items() if p["alive"]}
@@ -67,7 +86,10 @@ async def set_chat_locked(locked: bool):
     except Exception:
         pass
 
-# Клавіатури
+# =========================
+# КЛАВІАТУРИ
+# =========================
+
 def lobby_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎮 Увійти в гру", callback_data="join")],
@@ -103,7 +125,10 @@ def vote_keyboard(candidates=None):
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-# Команди групи
+# =========================
+# КОМАНДИ ГРУПИ
+# =========================
+
 @dp.message(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}), F.text.startswith(("/start", "/mafia")))
 async def start_game_cmd(message: Message):
     game["status"] = "lobby"
@@ -124,7 +149,10 @@ async def cancel_game_cmd(message: Message):
     await set_chat_locked(False)
     await message.answer("❌ Гру скасовано. Чат відкритий.")
 
-# Вхід у гру
+# =========================
+# ЛОГІКА ГРИ
+# =========================
+
 @dp.callback_query(F.data == "join")
 async def join_game(callback: CallbackQuery):
     if game["status"] != "lobby":
@@ -143,7 +171,6 @@ async def join_game(callback: CallbackQuery):
         pass
     await callback.answer("Ти у грі!")
 
-# Старт гри кнопкою
 @dp.callback_query(F.data == "start")
 async def launch_game(callback: CallbackQuery):
     if game["status"] != "lobby":
@@ -176,7 +203,6 @@ async def launch_game(callback: CallbackQuery):
     await callback.message.edit_text("🌙 Місто засинає...")
     await start_night()
 
-# Ніч
 async def start_night():
     cancel_timer()
     game["status"] = "night"
@@ -204,19 +230,8 @@ async def start_night():
         except Exception:
             pass
 
-    # Запускаємо таймер ночі (40 сек) через потік
-    run_threaded_timer(40, resolve_night, "night")
-
-def run_threaded_timer(seconds, callback_func, expected_status):
-    current_thread_id = threading.get_ident()
-    game["timer_thread"] = current_thread_id
-
-    def worker():
-        time.sleep(seconds)
-        if game["timer_thread"] == current_thread_id and game["status"] == expected_status:
-            asyncio.run_coroutine_threadsafe(callback_func(), bot.session.loop if hasattr(bot, 'session') else asyncio.get_event_loop())
-
-    threading.Thread(target=worker, daemon=True).start()
+    # Таймер ночі 40 сек
+    start_safe_timer(40, resolve_night)
 
 async def check_night_ready():
     alive_m = [u for u, p in game["players"].items() if p["alive"] and p["role"] == "mafia"]
@@ -232,7 +247,6 @@ async def check_night_ready():
         cancel_timer()
         await resolve_night()
 
-# Дії вночі
 @dp.callback_query(F.data.startswith("mafia:"))
 async def m_action(callback: CallbackQuery):
     if game["status"] != "night": return
@@ -297,7 +311,6 @@ async def resolve_night():
             p["alive"] = False
             text += f"💀 Мафія вбила **{p['name']}** ({ROLES[p['role']]}).\n"
 
-    # Шериф стріляє
     s_act = game["sheriff_action"]
     if s_act and s_act[0] == "shot":
         st = s_act[1]
@@ -316,12 +329,23 @@ async def resolve_night():
     if await check_win(): return
 
     game["status"] = "day"
-    await bot.send_message(game["chat_id"], "🗣 **ДЕНЬ**\n💬 Чат відкритий на 60 секунд.")
+    await bot.send_message(
+        game["chat_id"], 
+        "🗣 **ДЕНЬ**\n💬 Чат відкритий на 60 секунд.\n*(Або натисніть кнопку нижче, щоб завершити обговорення достроково)*",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⏩ Завершити обговорення", callback_data="force_voting")]])
+    )
     
-    # Запускаємо таймер дня через потік на 60 секунд
-    run_threaded_timer(60, start_voting, "day")
+    # Залізобетонний таймер дня на 60 секунд
+    start_safe_timer(60, start_voting)
 
-# Голосування
+@dp.callback_query(F.data == "force_voting")
+async def force_voting_handler(callback: CallbackQuery):
+    if game["status"] != "day":
+        return await callback.answer("Зараз не день.", show_alert=True)
+    cancel_timer()
+    await callback.answer("Переходимо до голосування!")
+    await start_voting()
+
 async def start_voting(candidates=None):
     if game["status"] not in {"day", "voting"}:
         return
@@ -332,8 +356,8 @@ async def start_voting(candidates=None):
     
     await bot.send_message(game["chat_id"], "⚖️ **ГОЛОСУВАННЯ**\n🔒 Чат закритий.", reply_markup=vote_keyboard(candidates))
     
-    # Запускаємо таймер голосування через потік на 30 секунд
-    run_threaded_timer(30, resolve_voting, "voting")
+    # Залізобетонний таймер голосування на 30 секунд
+    start_safe_timer(30, resolve_voting)
 
 @dp.callback_query(F.data.startswith("vote:"))
 async def vote_action(callback: CallbackQuery):
