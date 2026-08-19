@@ -144,7 +144,7 @@ async def cmd_start_game(message: Message):
     await message.answer(
         "🎴 НОВА ГРА В МАФІЮ\n\n"
         "Натискайте «Увійти в гру» (мінімум 4 гравці).\n"
-        "*(Напиши боту в ЛС хоча б одне повідомлення, щоб він міг надсилати ролі та голосування!)*", 
+        "*(Обов'язково напишіть боту в ЛС хоча б одне повідомлення або /start, інакше він не зможе надіслати ролі та голосування!)*", 
         reply_markup=lobby_kb()
     )
 
@@ -252,9 +252,11 @@ async def start_night(g):
         except Exception as e:
             logging.error(f"Помилка відправки ролі гравцю {uid}: {e}")
 
+    # Жорсткий таймер на 35 секунд: якщо хтось не встиг, ніч завершується примусово
     start_timer(g, 35, resolve_night)
 
 async def check_night_ready(g):
+    # Якщо всі необхідні гравці зробили свій вибір раніше таймера — скасовуємо таймер і завершуємо ніч одразу
     alive_m = [u for u, p in g["players"].items() if p["alive"] and p["role"] == "mafia"]
     m_done = all(u in g["mafia_votes"] for u in alive_m)
     d_done = (not any(p["alive"] and p["role"] == "doctor" for p in g["players"].values())) or (g["doctor_target"] is not None)
@@ -395,10 +397,8 @@ async def start_voting(g, candidates=None):
     chat_id = g["chat_id"]
     await set_chat_locked(chat_id, True)
 
-    # Повідомлення в загальний чат
     await bot.send_message(chat_id, "⚖️ **ГОЛОСУВАННЯ РОЗПОЧАТО!**\n🔒 Зазирніть у ЛС до бота — обирайте підозрюваного там (на хід 30 секунд).")
 
-    # Розсилаємо кнопки кожному живому гравцю в ЛС
     for uid, p in g["players"].items():
         if not p["alive"]:
             continue
@@ -410,7 +410,7 @@ async def start_voting(g, candidates=None):
             )
         except Exception as e:
             logging.error(f"Не вдалося надіслати голосування в ЛС гравцю {uid}: {e}")
-            await bot.send_message(chat_id, f"⚠️ {p['name']} не зміг отримати голосування в ЛС. Напишіть боту /start")
+            await bot.send_message(chat_id, f"⚠️ {p['name']} не зміг отримати голосування в ЛС. Напишіть боту в ЛС /start")
 
     start_timer(g, 30, resolve_voting)
 
@@ -449,7 +449,6 @@ async def cb_vote(callback: CallbackQuery):
 
     await callback.answer("Голос прийнято!")
 
-    # Перевірка чи всі живі віддали голоси
     if set(g["votes"].keys()) >= alive_ids(g):
         cancel_timer(g)
         await resolve_voting(g)
