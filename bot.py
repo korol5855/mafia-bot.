@@ -14,19 +14,20 @@ from aiogram.types import (
 
 TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN:
-    raise RuntimeError("BOT_TOKEN не знайдено")
+    raise RuntimeError("BOT_TOKEN не знайдено в середовищі!")
 
 bot = Bot(TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
 dp = Dispatcher()
 
 game = {
-    "status": "idle",
+    "status": "idle",       # idle, lobby, night, day, voting, finished
     "chat_id": None,
-    "players": {},
+    "players": {},          # uid: {name, role, alive, number}
     "timer_task": None,
     "mafia_votes": {},
     "doctor_target": None,
     "sheriff_action": None,
+    "lucky_action": None,   # вибір щасливчика вночі
     "votes": {},
     "runoff": None,
 }
@@ -35,6 +36,7 @@ ROLES = {
     "mafia": "Мафія 🔪",
     "doctor": "Лікар 🩺",
     "sheriff": "Шериф 🕵️",
+    "lucky": "Щасливчик 🍀",
     "civilian": "Мирний житель 😇",
 }
 
@@ -67,12 +69,14 @@ def role_summary():
     )
 
 async def set_chat_locked(locked: bool):
-    if not game["chat_id"]: return
+    if not game["chat_id"]: 
+        return
     try:
         await bot.set_chat_permissions(game["chat_id"], ChatPermissions(can_send_messages=not locked))
     except Exception:
         pass
 
+# --- КЛАВІАТУРИ ---
 def lobby_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎮 Увійти в гру", callback_data="join")],
@@ -100,50 +104,63 @@ def sheriff_kb(uid_self):
     btns.append([InlineKeyboardButton(text="💤 Нічого не робити", callback_data="sht:skip")])
     return InlineKeyboardMarkup(inline_keyboard=btns)
 
+def lucky_kb(uid_self):
+    btns = [[InlineKeyboardButton(text=f"🍀 Вгадати щасливчика ({p['number']}. {p['name']})", callback_data=f"lck:{uid}")]
+            for uid, p in game["players"].items() if p["alive"] and uid != uid_self]
+    btns.append([InlineKeyboardButton(text="💤 Пропуск", callback_data="lck:skip")])
+    return InlineKeyboardMarkup(inline_keyboard=btns)
+
 def vote_kb(candidates=None):
     allowed = candidates if candidates is not None else alive_ids()
     btns = [[InlineKeyboardButton(text=f"👉 {p['number']}. {p['name']}", callback_data=f"v:{uid}")]
             for uid, p in game["players"].items() if uid in allowed and p["alive"]]
     return InlineKeyboardMarkup(inline_keyboard=btns)
 
+# --- СТАРТ ТА СКАСУВАННЯ ---
 @dp.message(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}), F.text.regexp(r"^/mafia($|@)"))
 async def cmd_start_game(message: Message):
     cancel_timer()
     await set_chat_locked(False)
+    
     game["status"] = "lobby"
     game["chat_id"] = message.chat.id
     game["players"].clear()
     game["mafia_votes"].clear()
     game["doctor_target"] = None
     game["sheriff_action"] = None
+    game["lucky_action"] = None
     game["votes"].clear()
     game["runoff"] = None
 
     await message.answer(
-        "🎴 НОВА ГРА В МАФІЮ\n\n"
-        "Натискайте «Увійти в гру» (мінімум 4 гравці).\n"
-        "*(Напиши боту в ЛС хоча б будь-яке повідомлення, щоб він міг надсилати ролі!)*", 
+        "🎴 НОВА ГРА В МАФІЮ (ЗІ ЩАСЛИВЧИКОМ)\n\n"
+        "Натискайте «Увійти в гру» (мінімум 5 гравців для повноцінної ролі щасливчика).\n"
+        "*(Напиши боту в ЛС хоча б одне повідомлення, щоб він міг надсилати ролі!)*", 
         reply_markup=lobby_kb()
     )
 
 @dp.message(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}), F.text.regexp(r"^/cancel($|@)"))
 async def cmd_cancel(message: Message):
     cancel_timer()
+    await set_chat_locked(False)
+    
     game["status"] = "idle"
     game["chat_id"] = None
     game["players"].clear()
     game["mafia_votes"].clear()
     game["doctor_target"] = None
     game["sheriff_action"] = None
+    game["lucky_action"] = None
     game["votes"].clear()
     game["runoff"] = None
-    await set_chat_locked(False)
-    await message.answer("❌ Гру скасовано. Чат розблоковано.")
 
+    await message.answer("❌ Гру примусово скасовано. Чат розблоковано.")
+
+# --- ЛОБІ ТА РОЗДАЧА РОЛЕЙ ---
 @dp.callback_query(F.data == "join")
 async def cb_join(callback: CallbackQuery):
     if game["status"] != "lobby":
-        return await callback.answer("Зараз немає набору.", show_alert=True)
+        return await callback.answer("Зараз немає набору в гру.", show_alert=True)
     uid = callback.from_user.id
     if uid in game["players"]:
         return await callback.answer("Ти вже у грі!", show_alert=True)
@@ -160,8 +177,8 @@ async def cb_join(callback: CallbackQuery):
 async def cb_launch(callback: CallbackQuery):
     if game["status"] != "lobby":
         return await callback.answer("Гра вже йде.", show_alert=True)
-    if len(game["players"]) < 4:
-        return await callback.answer("Треба мінімум 4 гравці!", show_alert=True)
+    if len(game["players"]) < 5:
+        return await callback.answer("Для гри з Щасливчиком треба мінімум 5 гравців!", show_alert=True)
 
     ids = list(game["players"].keys())
     random.shuffle(ids)
@@ -169,7 +186,7 @@ async def cb_launch(callback: CallbackQuery):
         game["players"][uid]["number"] = i
 
     total = len(ids)
-    m_count = 1 if total <= 5 else (2 if total <= 8 else 3)
+    m_count = 1 if total <= 6 else 2
     
     idx = 0
     for _ in range(m_count):
@@ -178,6 +195,8 @@ async def cb_launch(callback: CallbackQuery):
     game["players"][ids[idx]]["role"] = "doctor"
     idx += 1
     game["players"][ids[idx]]["role"] = "sheriff"
+    idx += 1
+    game["players"][ids[idx]]["role"] = "lucky"
     idx += 1
     for uid in ids[idx:]:
         game["players"][uid]["role"] = "civilian"
@@ -188,19 +207,22 @@ async def cb_launch(callback: CallbackQuery):
         pass
     await start_night()
 
+# --- НІЧНА ФАЗА ---
 async def start_night():
     cancel_timer()
     game["status"] = "night"
     game["mafia_votes"].clear()
     game["doctor_target"] = None
     game["sheriff_action"] = None
+    game["lucky_action"] = None
     await set_chat_locked(True)
 
-    await bot.send_message(game["chat_id"], "🌙 НІЧ\n\n🔒 Чат закритий. Ролі та ходи роздано в ЛС (на хід 30 секунд).")
+    await bot.send_message(game["chat_id"], "🌙 НІЧ\n\n🔒 Чат закритий. Ролі роздано в ЛС (на хід 35 секунд).")
     mafia_team = "\n".join(f"• {p['name']}" for p in game["players"].values() if p["role"] == "mafia")
 
     for uid, p in game["players"].items():
-        if not p["alive"]: continue
+        if not p["alive"]: 
+            continue
         try:
             if p["role"] == "mafia":
                 await bot.send_message(uid, f"🔪 **МАФІЯ**\nКоманда:\n{mafia_team}\n\nОбери жертву:\n\n{alive_text()}", reply_markup=mafia_kb())
@@ -208,20 +230,23 @@ async def start_night():
                 await bot.send_message(uid, f"🩺 **ЛІКАР**\nОбери кого лікувати:\n\n{alive_text()}", reply_markup=doctor_kb())
             elif p["role"] == "sheriff":
                 await bot.send_message(uid, f"🕵️ **ШЕРИФ**\nОбери дію:\n\n{alive_text()}", reply_markup=sheriff_kb(uid))
+            elif p["role"] == "lucky":
+                await bot.send_message(uid, f"🍀 **ЩАСЛИВЧИК**\nСпробуй відчути удачу і вгадати ціль або врятуватися:\n\n{alive_text()}", reply_markup=lucky_kb(uid))
             else:
                 await bot.send_message(uid, "😇 **МИРНИЙ ЖИТЕЛЬ**\nСпи спокійно, місто засинає...")
         except Exception:
             await bot.send_message(game["chat_id"], f"⚠️ Гравець {p['name']} не відкрив ЛС з ботом!")
 
-    start_timer(30, resolve_night)
+    start_timer(35, resolve_night)
 
 async def check_night_ready():
     alive_m = [u for u, p in game["players"].items() if p["alive"] and p["role"] == "mafia"]
     m_done = all(u in game["mafia_votes"] for u in alive_m)
     d_done = (not any(p["alive"] and p["role"] == "doctor" for p in game["players"].values())) or (game["doctor_target"] is not None)
     s_done = (not any(p["alive"] and p["role"] == "sheriff" for p in game["players"].values())) or (game["sheriff_action"] is not None)
+    l_done = (not any(p["alive"] and p["role"] == "lucky" for p in game["players"].values())) or (game["lucky_action"] is not None)
 
-    if m_done and d_done and s_done:
+    if m_done and d_done and s_done and l_done:
         cancel_timer()
         await resolve_night()
 
@@ -284,23 +309,47 @@ async def cb_sheriff(callback: CallbackQuery):
     await callback.answer("Збережено!")
     await check_night_ready()
 
+@dp.callback_query(F.data.startswith("lck:"))
+async def cb_lucky(callback: CallbackQuery):
+    if game["status"] != "night":
+        try: await callback.message.edit_reply_markup(reply_markup=None)
+        except Exception: pass
+        return await callback.answer("Ця ніч вже закінчилася.", show_alert=True)
+    
+    val = callback.data.split(":")[1]
+    game["lucky_action"] = "skip" if val == "skip" else int(val)
+    
+    try: await callback.message.edit_text("🍀 Інтуїцію щасливчика зафіксовано.", reply_markup=None)
+    except Exception: pass
+    
+    await callback.answer("Збережено!")
+    await check_night_ready()
+
 async def resolve_night():
-    if game["status"] != "night": return
+    if game["status"] != "night": 
+        return
     cancel_timer()
 
     counts = {}
     for uid in [u for u, p in game["players"].items() if p["alive"] and p["role"] == "mafia"]:
         t = game["mafia_votes"].get(uid)
-        if isinstance(t, int): counts[t] = counts.get(t, 0) + 1
+        if isinstance(t, int): 
+            counts[t] = counts.get(t, 0) + 1
 
     m_target = max(counts, key=counts.get) if counts else None
     d_target = game["doctor_target"]
+    
+    # Ефект щасливчика: якщо мафія стріляє в щасливчика, є шанс 50% що він ухилиться або виживе
+    lucky_uid = next((u for u, p in game["players"].items() if p["role"] == "lucky"), None)
+    
     text = "🌅 **РАНОК У МІСТІ**\n\n"
 
     if m_target is None or m_target == "skip":
         text += "🔪 Мафія нікого не вбила.\n"
     elif m_target == d_target:
         text += f"🩺 Лікар врятував **{game['players'][m_target]['name']}**!\n"
+    elif lucky_uid and m_target == lucky_uid and random.random() < 0.5:
+        text += f"🍀 Щасливчик **{game['players'][lucky_uid]['name']}** дивом уникнув смертельної кулі мафії!\n"
     else:
         p = game["players"][m_target]
         p["alive"] = False
@@ -321,27 +370,31 @@ async def resolve_night():
     await set_chat_locked(False)
     await bot.send_message(game["chat_id"], text)
 
-    if await check_win(): return
+    if await check_win(): 
+        return
 
     game["status"] = "day"
     await bot.send_message(
         game["chat_id"], 
-        "🗣 **ДЕНЬ**\n💬 Обговорення 45 секунд.",
+        "🗣 **ДЕНЬ**\n💬 Обговорення (45 секунд).",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⏩ До голосування", callback_data="force_vote")]])
     )
     start_timer(45, start_voting)
 
 @dp.callback_query(F.data == "force_vote")
 async def cb_force_vote(callback: CallbackQuery):
-    if game["status"] != "day": return await callback.answer("Зараз не день.", show_alert=True)
+    if game["status"] != "day": 
+        return await callback.answer("Зараз не день.", show_alert=True)
     cancel_timer()
     try: await callback.message.edit_reply_markup(reply_markup=None)
     except Exception: pass
     await callback.answer()
     await start_voting()
 
+# --- ГОЛОСУВАННЯ ---
 async def start_voting(candidates=None):
-    if game["status"] not in {"day", "voting"}: return
+    if game["status"] not in {"day", "voting"}: 
+        return
     cancel_timer()
     game["status"] = "voting"
     game["votes"].clear()
@@ -351,7 +404,8 @@ async def start_voting(candidates=None):
 
 @dp.callback_query(F.data.startswith("v:"))
 async def cb_vote(callback: CallbackQuery):
-    if game["status"] != "voting": return await callback.answer("Зараз не голосування.", show_alert=True)
+    if game["status"] != "voting": 
+        return await callback.answer("Зараз не голосування.", show_alert=True)
     uid = callback.from_user.id
     if uid not in game["players"] or not game["players"][uid]["alive"]:
         return await callback.answer("Мертві не голосують.", show_alert=True)
@@ -367,7 +421,8 @@ async def cb_vote(callback: CallbackQuery):
         await resolve_voting()
 
 async def resolve_voting():
-    if game["status"] != "voting": return
+    if game["status"] != "voting": 
+        return
     cancel_timer()
 
     counts = {}
@@ -402,7 +457,8 @@ async def resolve_voting():
 async def finish_voting(text):
     await set_chat_locked(False)
     await bot.send_message(game["chat_id"], text + "\n\n" + alive_text())
-    if await check_win(): return
+    if await check_win(): 
+        return
     await start_night()
 
 async def check_win():
@@ -413,19 +469,19 @@ async def check_win():
         cancel_timer()
         game["status"] = "finished"
         await set_chat_locked(False)
-        await bot.send_message(game["chat_id"], "🎉 **ПЕРЕМОГА МИРНИХ!**\n\n" + role_summary())
+        await bot.send_message(game["chat_id"], "🎉 **ПЕРЕМОГА МИРНИХ!** Всю мафію знищено!\n\n" + role_summary())
         return True
     if mafia >= others:
         cancel_timer()
         game["status"] = "finished"
         await set_chat_locked(False)
-        await bot.send_message(game["chat_id"], "🔪 **ПЕРЕМОГА МАФІЇ!**\n\n" + role_summary())
+        await bot.send_message(game["chat_id"], "🔪 **ПЕРЕМОГА МАФІЇ!** Вони захопили місто!\n\n" + role_summary())
         return True
     return False
 
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
-    print("Бот запущено успішно!")
+    print("Бот запущено зі Щасливчиком!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
