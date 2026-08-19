@@ -21,6 +21,9 @@ if not TOKEN:
 bot = Bot(TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
 dp = Dispatcher()
 
+# Зберігаємо головний цикл подій тут на старті
+main_event_loop = None
+
 game = {
     "status": "idle",
     "chat_id": None,
@@ -43,21 +46,21 @@ ROLES = {
 }
 
 # =========================
-# ТАЙМЕРИ НА ПОТОКАХ (ЗАЛІЗОБЕТОННІ)
+# ЗАЛІЗОБЕТОННІ ТАЙМЕРИ НА ПОТОКАХ
 # =========================
 
 def cancel_timer():
-    game["timer_id"] += 1  # Збільшуємо ID, щоб скасувати попередні потоки таймерів
+    game["timer_id"] += 1
 
 def start_safe_timer(seconds, callback_coro):
     cancel_timer()
     current_id = game["timer_id"]
+    loop = main_event_loop
 
     def worker():
         time.sleep(seconds)
-        if game["timer_id"] == current_id:
-            # Безпечно передаємо задачу в головний цикл подій боту
-            asyncio.run_coroutine_threadsafe(callback_coro(), bot.session.loop)
+        if game["timer_id"] == current_id and loop and loop.is_running():
+            asyncio.run_coroutine_threadsafe(callback_coro(), loop)
 
     threading.Thread(target=worker, daemon=True).start()
 
@@ -230,7 +233,6 @@ async def start_night():
         except Exception:
             pass
 
-    # Таймер ночі 40 сек
     start_safe_timer(40, resolve_night)
 
 async def check_night_ready():
@@ -335,7 +337,6 @@ async def resolve_night():
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⏩ Завершити обговорення", callback_data="force_voting")]])
     )
     
-    # Залізобетонний таймер дня на 60 секунд
     start_safe_timer(60, start_voting)
 
 @dp.callback_query(F.data == "force_voting")
@@ -355,8 +356,6 @@ async def start_voting(candidates=None):
     await set_chat_locked(True)
     
     await bot.send_message(game["chat_id"], "⚖️ **ГОЛОСУВАННЯ**\n🔒 Чат закритий.", reply_markup=vote_keyboard(candidates))
-    
-    # Залізобетонний таймер голосування на 30 секунд
     start_safe_timer(30, resolve_voting)
 
 @dp.callback_query(F.data.startswith("vote:"))
@@ -434,6 +433,9 @@ async def check_win():
     return False
 
 async def main():
+    global main_event_loop
+    main_event_loop = asyncio.get_running_loop() # Захоплюємо правильний цикл подій
+    
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
