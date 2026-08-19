@@ -260,17 +260,25 @@ async def cb_night_actions(callback: CallbackQuery):
         "shot": "💥 Шериф зняв запобіжник. Повітря в місті стало напруженим..."
     }
 
+    choice_text = "✅ Вибір збережено."
+
     if action == "kill":
         game["mafia_target"] = int(data[1])
+        target_name = game["players"].get(int(data[1]), {}).get("name", "")
+        choice_text = f"✅ Ви обрали ціль для вбивства: **{target_name}**"
         await bot.send_message(game["chat_id"], chat_messages["kill"])
     elif action == "kill_skip":
         game["mafia_target"] = "skip"
+        choice_text = "💤 Ви пропустили нічний удар."
         await bot.send_message(game["chat_id"], chat_messages["kill_skip"])
     elif action == "heal":
         game["doctor_target"] = int(data[1])
+        target_name = game["players"].get(int(data[1]), {}).get("name", "")
+        choice_text = f"✅ Ви обрали кого лікувати: **{target_name}**"
         await bot.send_message(game["chat_id"], chat_messages["heal"])
     elif action == "heal_skip":
         game["doctor_target"] = "skip"
+        choice_text = "💤 Ви нікого не лікували цієї ночі."
         await bot.send_message(game["chat_id"], chat_messages["heal_skip"])
     elif action == "check":
         if game["sheriff_action_done"]:
@@ -278,7 +286,10 @@ async def cb_night_actions(callback: CallbackQuery):
         target_id = int(data[1])
         target_role = game["players"].get(target_id, {}).get("role")
         res = "мафія 🔪" if target_role == "mafia" else "мирний житель 😇"
-        await callback.message.answer(f"🔍 Перевірка завершена: {game['players'][target_id]['name']} виявився(-лась) — {res}")
+        target_name = game["players"][target_id]["name"]
+        choice_text = f"✅ Перевірено **{target_name}** — виявився(-лась) як **{res}**"
+        
+        await callback.message.answer(f"🔍 Перевірка завершена: {target_name} виявився(-лась) — {res}")
         game["commissioner_target"] = target_id
         game["sheriff_action_done"] = True
         await bot.send_message(game["chat_id"], chat_messages["check"])
@@ -286,12 +297,20 @@ async def cb_night_actions(callback: CallbackQuery):
         if game["sheriff_action_done"]:
             return await callback.answer("Ти вже зробив дію цієї ночі!", show_alert=True)
         target_id = int(data[1])
+        target_name = game["players"][target_id]["name"]
+        choice_text = f"🎯 Ви зробили постріл у гравця: **{target_name}**"
+        
         game["commissioner_shot"] = target_id
         game["sheriff_action_done"] = True
-        await callback.message.answer(f"🔫 Ти вистрілив у гравця: {game['players'][target_id]['name']}")
+        await callback.message.answer(f"🔫 Ти вистрілив у гравця: {target_name}")
         await bot.send_message(game["chat_id"], chat_messages["shot"])
 
-    await callback.message.edit_text("✅ Вибір збережено.")
+    try:
+        await callback.message.edit_text(choice_text, reply_markup=None)
+    except Exception:
+        pass
+
+    await callback.answer("Збережено!")
     await check_night_actions()
 
 async def check_night_actions():
@@ -397,6 +416,17 @@ async def cb_vote(callback: CallbackQuery):
         
     target_id = int(callback.data.split("_")[1])
     game["votes"][voter_id] = target_id
+    
+    target_name = game["players"].get(target_id, {}).get("name", "когось")
+    
+    try:
+        await callback.message.edit_text(
+            f"🗳 Ваш голос за гравця **{target_name}** успішно прийнято. Очікуємо інших...", 
+            reply_markup=None
+        )
+    except Exception:
+        pass
+
     await callback.answer("Голос прийнято!")
     
     alive_players = [uid for uid, p in game["players"].items() if p["alive"]]
