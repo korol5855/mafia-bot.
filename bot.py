@@ -119,6 +119,18 @@ def format_all_roles_summary():
         status = "💀 мертвий" if not p["alive"] else "🟢 вижив"
         text += f"• {p['number']}. {p['name']} — {role_icons.get(p['role'], p['role'])} ({status})\n"
     return text
+@dp.message(F.text == "/start", F.chat.type == "private")
+async def private_start(message: Message):
+    user_name = message.from_user.first_name
+    await message.answer(
+        f"👋 Привіт, **{user_name}**! Вітаю тебе в боті для гри в **Мафію**.\n\n"
+        "📜 **Правила гри та ролі:**\n"
+        "🔪 **Мафія** — щоночі обирає жертву для вбивства.\n"
+        "🩺 **Доктор** — може врятувати від кулі мафії себе чи іншого гравця.\n"
+        "🕵️ **Шериф** — перевіряє підозрілих або може сам відкрити вогонь.\n"
+        "😇 **Мирний житель** — бере участь у денних обговореннях і голосуваннях.\n\n"
+        "📌 *Як грати:* повертайся у свій груповий чат, де додано бота, і пиши команду `/mafia`, щоб розпочати новий збір гравців!"
+    )
 
 # --- КОМАНДИ ---
 @dp.message(F.text.startswith("/"))
@@ -469,18 +481,6 @@ def check_win_condition():
         game["status"] = "waiting"
         return True
     return False
-@dp.message(F.text == "/start", F.chat.type == "private")
-async def private_start(message: Message):
-    user_name = message.from_user.first_name
-    await message.answer(
-        f"👋 Привіт, **{user_name}**! Вітаю тебе в боті для гри в **Мафію**.\n\n"
-        "📜 **Правила гри та ролі:**\n"
-        "🔪 **Мафія** — щоночі обирає жертву для вбивства.\n"
-        "🩺 **Доктор** — може врятувати від кулі мафії себе чи іншого гравця.\n"
-        "🕵️ **Шериф** — перевіряє підозрілих або може сам відкрити вогонь.\n"
-        "😇 **Мирний житель** — бере участь у денних обговореннях і голосуваннях.\n\n"
-        "📌 *Як грати:* повертайся у свій груповий чат, де додано бота, і пиши команду `/mafia`, щоб розпочати новий збір гравців!"
-    )
     
 async def main():
     print("Бот 'Мафія' оновлено і повністю готовий до роботи...")
