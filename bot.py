@@ -453,14 +453,16 @@ async def resolve_night(g):
     await bot.send_message(
         chat_id, 
         "🗣 **ДЕНЬ**\n💬 Обговорення (60 секунд).",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⏩ До голосування", callback_data="force_vote")]])
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⏩ До голосування", callback_data=f"force_vote:{chat_id}")]])
     )
     start_timer(g, 60, start_voting)
 
-@dp.callback_query(F.data == "force_vote")
+@dp.callback_query(F.data.startswith("force_vote:"))
 async def cb_force_vote(callback: CallbackQuery):
-    chat_id = callback.message.chat.id
-    g = get_game(chat_id)
+    chat_id = int(callback.data.split(":")[1])
+    if chat_id not in games:
+        return await callback.answer("Гра не знайдена.", show_alert=True)
+    g = games[chat_id]
     if g["status"] != "day": 
         return await callback.answer("Зараз не день.", show_alert=True)
     cancel_timer(g)
@@ -483,14 +485,22 @@ async def start_voting(g, candidates=None):
 
 @dp.callback_query(F.data.startswith("v:"))
 async def cb_vote(callback: CallbackQuery):
-    chat_id = callback.message.chat.id
-    g = get_game(chat_id)
-    if g["status"] != "voting": 
-        return await callback.answer("Зараз не голосування.", show_alert=True)
+    chat_id = None
+    g = None
     uid = callback.from_user.id
+    
+    for cid, game in games.items():
+        if game["status"] == "voting" and uid in game["players"]:
+            chat_id = cid
+            g = game
+            break
+            
+    if not g:
+        return await callback.answer("Зараз немає активного голосування для тебе.", show_alert=True)
+        
     if uid in g["votes"]:
         return await callback.answer("Ти вже проголосував!", show_alert=True)
-    if uid not in g["players"] or not g["players"][uid]["alive"]:
+    if not g["players"][uid]["alive"]:
         return await callback.answer("Мертві не голосують.", show_alert=True)
     
     target = int(callback.data.split(":")[1])
@@ -498,8 +508,6 @@ async def cb_vote(callback: CallbackQuery):
         return await callback.answer("Цей гравець вже мертвий.", show_alert=True)
 
     g["votes"][uid] = target
-    try: await callback.message.edit_reply_markup(reply_markup=None)
-    except Exception: pass
     await callback.answer("Голос прийнято!")
 
     if set(g["votes"].keys()) >= alive_ids(g):
@@ -585,4 +593,4 @@ async def main():
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.main(main()) if hasattr(asyncio, "main") else asyncio.run(main())
