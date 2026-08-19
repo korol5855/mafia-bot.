@@ -77,7 +77,7 @@ def alive_text(g):
 
 def role_summary(g):
     return "📜 Ролі у грі:\n\n" + "".join(
-        f"• {p['number']}. {p['name']} — {ROLES[p['role']]} ({'🟢 вижив' if p['alive'] else '💀 мертвий'})\n"
+        f"• {p['number']}. {p['name']} — {ROLES[p['role파일명'] if 'role' in p else 'civilian']} ({'🟢 вижив' if p['alive'] else '💀 мертвий'})\n"
         for p in sorted(g["players"].values(), key=lambda x: x["number"])
     )
 
@@ -171,7 +171,7 @@ async def cb_join(callback: CallbackQuery):
     try:
         await callback.message.edit_text(f"🎴 ЗБІР ГРАВЦІВ\n\nУчасники ({len(g['players'])}):\n{names}", reply_markup=lobby_kb())
     except Exception:
-        pass  # Ігноруємо помилку, якщо текст не змінився
+        pass  
         
     await callback.answer("Ти у грі!")
 
@@ -234,7 +234,7 @@ async def start_night(g):
     chat_id = g["chat_id"]
     await set_chat_locked(chat_id, True)
 
-    await bot.send_message(chat_id, "🌙 НІЧ\n\n🔒 Чат закритий. Ролі роздано в ЛС (на хід 35 секунд).")
+    await bot.send_message(chat_id, "🌙 НІЧ\n\n🔒 Чат закритий. Ролі роздано в ЛС (на хід 30 секунд).")
 
     for uid, p in g["players"].items():
         if not p["alive"]: 
@@ -254,14 +254,21 @@ async def start_night(g):
         except Exception as e:
             logging.error(f"Помилка відправки ролі гравцю {uid}: {e}")
 
-    # Якщо ніхто нічого не робить за 35 секунд, таймер спрацьовує і примусово переводить гру на день
-    start_timer(g, 35, resolve_night)
+    # Жорсткий таймер на 30 секунд — навіть якщо хтось завис, ніч завершиться автоматично
+    start_timer(g, 30, resolve_night)
 
 async def check_night_ready(g):
+    if g["status"] != "night":
+        return
+    
     alive_m = [u for u, p in g["players"].items() if p["alive"] and p["role"] == "mafia"]
     m_done = all(u in g["mafia_votes"] for u in alive_m)
-    d_done = (not any(p["alive"] and p["role"] == "doctor" for p in g["players"].values())) or (g["doctor_target"] is not None)
-    s_done = (not any(p["alive"] and p["role"] == "sheriff" for p in g["players"].values())) or (g["sheriff_action"] is not None)
+    
+    doc_alive = any(p["alive"] and p["role"] == "doctor" for p in g["players"].values())
+    d_done = (not doc_alive) or (g["doctor_target"] is not None)
+
+    sher_alive = any(p["alive"] and p["role"] == "sheriff" for p in g["players"].values())
+    s_done = (not sher_alive) or (g["sheriff_action"] is not None)
 
     if m_done and d_done and s_done:
         cancel_timer(g)
@@ -275,15 +282,16 @@ async def cb_mafia(callback: CallbackQuery):
     chat_id = int(chat_id_str)
     if chat_id not in games: return
     g = games[chat_id]
-    if g["status"] != "night": return
+    if g["status"] != "night": 
+        return await callback.answer("Зараз не ніч.", show_alert=True)
+    
     uid = callback.from_user.id
     if uid not in g["players"] or g["players"][uid]["role"] != "mafia": return
-    if uid in g["mafia_votes"]:
-        return await callback.answer("Ти вже вибрав жертву!", show_alert=True)
     
     g["mafia_votes"][uid] = int(val) if val != "skip" else "skip"
     try: await callback.message.edit_text("🔪 Вибір мафії збережено.", reply_markup=None)
     except Exception: pass
+    
     await callback.answer("Збережено!")
     await check_night_ready(g)
 
@@ -295,15 +303,16 @@ async def cb_doctor(callback: CallbackQuery):
     chat_id = int(chat_id_str)
     if chat_id not in games: return
     g = games[chat_id]
-    if g["status"] != "night": return
+    if g["status"] != "night": 
+        return await callback.answer("Зараз не ніч.", show_alert=True)
+        
     uid = callback.from_user.id
     if uid not in g["players"] or g["players"][uid]["role"] != "doctor": return
-    if g["doctor_target"] is not None:
-        return await callback.answer("Ти вже зробив вибір!", show_alert=True)
 
     g["doctor_target"] = int(val) if val != "skip" else "skip"
     try: await callback.message.edit_text("🩺 Вибір лікаря збережено.", reply_markup=None)
     except Exception: pass
+    
     await callback.answer("Збережено!")
     await check_night_ready(g)
 
@@ -315,11 +324,11 @@ async def cb_sheriff(callback: CallbackQuery):
     chat_id = int(chat_id_str)
     if chat_id not in games: return
     g = games[chat_id]
-    if g["status"] != "night": return
+    if g["status"] != "night": 
+        return await callback.answer("Зараз не ніч.", show_alert=True)
+        
     uid = callback.from_user.id
     if uid not in g["players"] or g["players"][uid]["role"] != "sheriff": return
-    if g["sheriff_action"]:
-        return await callback.answer("Ти вже зробив дію!", show_alert=True)
 
     if val == "skip":
         g["sheriff_action"] = ("skip", None)
@@ -411,7 +420,6 @@ async def start_voting(g, candidates=None):
             )
         except Exception as e:
             logging.error(f"Не вдалося надіслати голосування в ЛС гравцю {uid}: {e}")
-            await bot.send_message(chat_id, f"⚠️ {p['name']} не зміг отримати голосування в ЛС. Напишіть боту в ЛС /start")
 
     start_timer(g, 30, resolve_voting)
 
@@ -478,14 +486,20 @@ async def resolve_voting(g):
             await finish_voting(g, "⚖️ Нічия в перестрілці. Нікого не вигнано.")
         else:
             g["runoff"] = cands
-            await bot.send_message(chat_id, f"⚖️ **НІЧИЯ!** Між кандидатами: " + ", ".join([f"{g['players'][c]['number']}. {g['players'][c]['name']}" for c in cands]) + ". Перестрілка!")
+            names_list = ", ".join([f"{g['players'][c]['number']}. {g['players'][c]['name']}" for c in cands])
+            await bot.send_message(chat_id, f"⚖️ **НІЧИЯ!** Між кандидатами: {names_list}. Перестрілка!")
             await start_voting(g, cands)
         return
 
     exiled = cands[0]
     g["players"][exiled]["alive"] = False
     g["runoff"] = None
-    await finish_voting(g, f"⚖️ Вигнано **{g['players'][exiled]['name']}** ({ROLES[g['players'][exiled]['role']]})")
+    
+    exiled_name = g["players"][exiled]["name"]
+    exiled_role = ROLES[g["players"][exiled]["role"]]
+    final_text = f"⚖️ Вигнано **{exiled_name}** ({exiled_role})"
+    
+    await finish_voting(g, final_text)
 
 async def finish_voting(g, text):
     chat_id = g["chat_id"]
