@@ -185,8 +185,8 @@ async def cb_join(callback: CallbackQuery):
 @dp.callback_query(F.data == "start_game")
 async def cb_start(callback: CallbackQuery):
     total_players = len(game["players"])
-    if total_players < 3:
-        return await callback.answer("Потрібно мінімум 3 гравці для повноцінної гри!", show_alert=True)
+    if total_players < 5:
+        return await callback.answer("Потрібно мінімум 5 гравців для повноцінної гри!", show_alert=True)
     
     game["status"] = "night"
     game["mafia_votes"].clear()
@@ -269,7 +269,6 @@ async def cb_night_actions(callback: CallbackQuery):
     user_id = callback.from_user.id
     player = game["players"].get(user_id)
     
-    # Перевірка, чи гравець існує і чи він ЖИВИЙ
     if not player or not player["alive"]:
         return await callback.answer("❌ Ви мертві і не можете здійснювати дії!", show_alert=True)
         
@@ -296,7 +295,6 @@ async def cb_night_actions(callback: CallbackQuery):
             if not target_player or not target_player["alive"]:
                 return await callback.answer("❌ Цей гравець уже мертвий!", show_alert=True)
                 
-        # Додатково переконуємося в реальному часі, що мафія досі жива
         if not player["alive"]:
             return await callback.answer("❌ Ви загинули і більше не голосуєте!", show_alert=True)
             
@@ -405,7 +403,6 @@ async def resolve_night():
                 else:
                     t_counts[t_id] = t_counts.get(t_id, 0) + 1
                     
-        # Пропуск зараховується тільки якщо ВСЯ жива мафія одноголосно проголосувала за "skip"
         if skip_count == alive_mafias_count:
             victim = "skip"
         elif t_counts:
@@ -618,7 +615,7 @@ async def check_win_condition():
     return False
 
 async def main():
-    print("Бот 'Мафія' оновлено: виправлено логіку обробки mkel_skip...")
+    print("Бот 'Мафія' оновлено: встановлено мінімум 5 гравців та виправлено skip...")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
