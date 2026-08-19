@@ -502,7 +502,9 @@ async def resolve_voting(g):
     exiled = cands[0]
     g["players"][exiled]["alive"] = False
     g["runoff"] = None
-    await finish_voting(g, f"⚖️ Вигнано **{g['players'][exiled]['name']}**.\nЙого роль: **{ROLES[g['players'][exiled]['role']]}**")
+    player_name = g['players'][exiled]['name']
+    player_role = ROLES[g['players'][exiled]['role']]
+    await finish_voting(g, f"⚖️ Вигнано **{player_name}**.\nЙого роль: **{player_role}**")
 
 async def finish_voting(g, text):
     chat_id = g["chat_id"]
