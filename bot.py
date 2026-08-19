@@ -167,10 +167,12 @@ async def cb_join(callback: CallbackQuery):
 
     g["players"][uid] = {"name": callback.from_user.first_name or "Гравець", "role": "civilian", "alive": True, "number": 0}
     names = "".join(f"• {p['name']}\n" for p in g["players"].values())
+    
     try:
         await callback.message.edit_text(f"🎴 ЗБІР ГРАВЦІВ\n\nУчасники ({len(g['players'])}):\n{names}", reply_markup=lobby_kb())
     except Exception:
-        pass
+        pass  # Ігноруємо помилку, якщо текст не змінився
+        
     await callback.answer("Ти у грі!")
 
 @dp.callback_query(F.data == "start")
@@ -252,11 +254,10 @@ async def start_night(g):
         except Exception as e:
             logging.error(f"Помилка відправки ролі гравцю {uid}: {e}")
 
-    # Жорсткий таймер на 35 секунд: якщо хтось не встиг, ніч завершується примусово
+    # Якщо ніхто нічого не робить за 35 секунд, таймер спрацьовує і примусово переводить гру на день
     start_timer(g, 35, resolve_night)
 
 async def check_night_ready(g):
-    # Якщо всі необхідні гравці зробили свій вибір раніше таймера — скасовуємо таймер і завершуємо ніч одразу
     alive_m = [u for u, p in g["players"].items() if p["alive"] and p["role"] == "mafia"]
     m_done = all(u in g["mafia_votes"] for u in alive_m)
     d_done = (not any(p["alive"] and p["role"] == "doctor" for p in g["players"].values())) or (g["doctor_target"] is not None)
