@@ -1,4 +1,52 @@
-﻿import asyncio
+import os
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
+import asyncio
+import random
+from aiogram import Bot, Dispatcher, F
+from aiogram.types import (
+    Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton,
+    FSInputFile, ChatPermissions
+)
+
+# Створюємо мікро-сервер для портів Render
+class SimpleHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is alive!")
+
+def run_web_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), SimpleHandler)
+    server.serve_forever()
+
+# Запускаємо веб-сервер в окремому потоці, щоб він не заважав боту
+threading.Thread(target=run_web_server, daemon=True).start()﻿import os
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
+import asyncio
+import random
+from aiogram import Bot, Dispatcher, F
+from aiogram.types import (
+    Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton,
+    FSInputFile, ChatPermissions
+)
+
+# Створюємо мікро-сервер для портів Render
+class SimpleHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is alive!")
+
+def run_web_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), SimpleHandler)
+    server.serve_forever()
+
+# Запускаємо веб-сервер в окремому потоці, щоб він не заважав боту
+threading.Thread(target=run_web_server, daemon=True).start()import asyncio
 import os
 import random
 from aiogram import Bot, Dispatcher, F
