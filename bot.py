@@ -43,7 +43,6 @@ def get_game(chat_id: int):
             "doctor_target": None,
             "sheriff_action": None,
             "votes": {},
-            "runoff": None,
         }
     return games[chat_id]
 
@@ -77,7 +76,7 @@ def alive_text(g):
 
 def role_summary(g):
     return "📜 Ролі у грі:\n\n" + "".join(
-        f"• {p['number']}. {p['name']} — {ROLES[p['role파일명'] if 'role' in p else 'civilian']} ({'🟢 вижив' if p['alive'] else '💀 мертвий'})\n"
+        f"• {p['number']}. {p['name']} — {ROLES[p.get('role', 'civilian')]} ({'🟢 вижив' if p['alive'] else '💀 мертвий'})\n"
         for p in sorted(g["players"].values(), key=lambda x: x["number"])
     )
 
@@ -124,8 +123,8 @@ def sheriff_kb(g, uid_self, chat_id):
     btns.append([InlineKeyboardButton(text="💤 Нічого не робити", callback_data=f"sht:skip:{chat_id}")])
     return InlineKeyboardMarkup(inline_keyboard=btns)
 
-def vote_kb(g, chat_id, candidates=None):
-    allowed = candidates if candidates is not None else alive_ids(g)
+def vote_kb(g, chat_id):
+    allowed = alive_ids(g)
     btns = [[InlineKeyboardButton(text=f"👉 {p['number']}. {p['name']}", callback_data=f"v:{uid}:{chat_id}")]
             for uid, p in g["players"].items() if uid in allowed and p["alive"]]
     btns.append([InlineKeyboardButton(text="💤 Пропуск / Утриматись", callback_data=f"v:skip:{chat_id}")])
@@ -254,7 +253,6 @@ async def start_night(g):
         except Exception as e:
             logging.error(f"Помилка відправки ролі гравцю {uid}: {e}")
 
-    # Жорсткий таймер на 30 секунд — навіть якщо хтось завис, ніч завершиться автоматично
     start_timer(g, 30, resolve_night)
 
 async def check_night_ready(g):
@@ -399,7 +397,7 @@ async def cb_force_vote(callback: CallbackQuery):
     await start_voting(g)
 
 # --- ГОЛОСУВАННЯ В ЛС ---
-async def start_voting(g, candidates=None):
+async def start_voting(g):
     if g["status"] not in {"day", "voting"}: return
     cancel_timer(g)
     g["status"] = "voting"
@@ -416,7 +414,7 @@ async def start_voting(g, candidates=None):
             await bot.send_message(
                 uid,
                 f"⚖️ **ГОЛОСУВАННЯ У МІСТІ**\nОберіть гравця для вигнання:\n\n{alive_text(g)}",
-                reply_markup=vote_kb(g, chat_id, candidates)
+                reply_markup=vote_kb(g, chat_id)
             )
         except Exception as e:
             logging.error(f"Не вдалося надіслати голосування в ЛС гравцю {uid}: {e}")
@@ -480,20 +478,14 @@ async def resolve_voting(g):
     max_v = max(counts.values())
     cands = [u for u, c in counts.items() if c == max_v]
 
+    # ЯКЩО НІЧИЯ — ОДРАЗУ НАСТАЄ НІЧ БЕЗ ПЕРЕСТРІЛОК
     if len(cands) > 1:
-        if g["runoff"]:
-            g["runoff"] = None
-            await finish_voting(g, "⚖️ Нічия в перестрілці. Нікого не вигнано.")
-        else:
-            g["runoff"] = cands
-            names_list = ", ".join([f"{g['players'][c]['number']}. {g['players'][c]['name']}" for c in cands])
-            await bot.send_message(chat_id, f"⚖️ **НІЧИЯ!** Між кандидатами: {names_list}. Перестрілка!")
-            await start_voting(g, cands)
+        names_list = ", ".join([f"{g['players'][c]['number']}. {g['players'][c]['name']}" for c in cands])
+        await finish_voting(g, f"⚖️ **НІЧИЯ!** Між кандидатами ({names_list}) рівна кількість голосів. Нікого не вигнано.")
         return
 
     exiled = cands[0]
     g["players"][exiled]["alive"] = False
-    g["runoff"] = None
     
     exiled_name = g["players"][exiled]["name"]
     exiled_role = ROLES[g["players"][exiled]["role"]]
