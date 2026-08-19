@@ -39,7 +39,7 @@ game = {
     "commissioner_target": None,
     "commissioner_shot": None,
     "sheriff_action_done": False,
-    "votes": {},         # {voter_id: target_id}
+    "votes": {},           # {voter_id: target_id}
     "runoff_candidates": [], # Список кандидатів у разі нічиєї
     "timer_task": None
 }
@@ -127,6 +127,7 @@ def format_all_roles_summary():
         status = "💀 мертвий" if not p["alive"] else "🟢 вижив"
         text += f"• {p['number']}. {p['name']} — {role_icons.get(p['role'], p['role'])} ({status})\n"
     return text
+
 @dp.message(F.text == "/start", F.chat.type == "private")
 async def private_start(message: Message):
     user_name = message.from_user.first_name
@@ -161,7 +162,7 @@ async def cmd_commands(message: Message):
         if game["timer_task"]:
             game["timer_task"].cancel()
         await mute_chat(message.chat.id, False)
-        await message.answer("❌ ГРУ СКАСОВАНО! Чат розблоковано. Можна розпочати нову за командую /mafia")
+        await message.answer("❌ ГРУ СКАСОВАНО! Чат розблоковано. Можна розпочати нову за командою /mafia")
 
 # --- ВХІД ТА СТАРТ ГРИ ---
 @dp.callback_query(F.data == "join_game")
@@ -341,7 +342,7 @@ async def resolve_night():
     await mute_chat(game["chat_id"], False)
     await send_phase_photo(game["chat_id"], "day", text)
     
-    if check_win_condition():
+    if await check_win_condition():
         return
 
     game["status"] = "discussion"
@@ -447,7 +448,7 @@ async def finalize_voting_round(text: str):
     await mute_chat(game["chat_id"], False)
     await bot.send_message(game["chat_id"], text)
     
-    if check_win_condition():
+    if await check_win_condition():
         return
         
     game["status"] = "night"
@@ -477,22 +478,22 @@ async def finalize_voting_round(text: str):
         game["timer_task"].cancel()
     game["timer_task"] = asyncio.create_task(night_timer())
 
-def check_win_condition():
+async def check_win_condition():
     alive_mafia = sum(1 for p in game["players"].values() if p["alive"] and p["role"] == "mafia")
     alive_civilians = sum(1 for p in game["players"].values() if p["alive"] and p["role"] != "mafia")
     
     if alive_mafia == 0:
         summary_text = "🎉 ПЕРЕМОГА МИРНИХ! Всю мафію знищено! 😇\n\n" + format_all_roles_summary()
-        bot.loop.create_task(bot.send_message(game["chat_id"], summary_text))
+        await bot.send_message(game["chat_id"], summary_text)
         game["status"] = "waiting"
         return True
     elif alive_mafia >= alive_civilians:
         summary_text = "🔪 ПЕРЕМОГА МАФІЇ! Вони захопили місто! 😈\n\n" + format_all_roles_summary()
-        bot.loop.create_task(bot.send_message(game["chat_id"], summary_text))
+        await bot.send_message(game["chat_id"], summary_text)
         game["status"] = "waiting"
         return True
     return False
-    
+
 async def main():
     print("Бот 'Мафія' оновлено і повністю готовий до роботи...")
     await bot.delete_webhook(drop_pending_updates=True)
