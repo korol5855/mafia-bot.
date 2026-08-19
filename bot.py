@@ -395,10 +395,20 @@ async def resolve_night():
     victim = None
     if game["mafia_votes"]:
         t_counts = {}
+        skip_count = 0
+        alive_mafias_count = sum(1 for p in game["players"].values() if p["alive"] and p["role"] == "mafia")
+        
         for m_id, t_id in game["mafia_votes"].items():
             if game["players"].get(m_id, {}).get("alive", False):
-                t_counts[t_id] = t_counts.get(t_id, 0) + 1
-        if t_counts:
+                if t_id == "skip":
+                    skip_count += 1
+                else:
+                    t_counts[t_id] = t_counts.get(t_id, 0) + 1
+                    
+        # Пропуск зараховується тільки якщо ВСЯ жива мафія одноголосно проголосувала за "skip"
+        if skip_count == alive_mafias_count:
+            victim = "skip"
+        elif t_counts:
             max_v = max(t_counts.values())
             candidates = [t for t, cnt in t_counts.items() if cnt == max_v]
             victim = random.choice(candidates)
@@ -608,7 +618,7 @@ async def check_win_condition():
     return False
 
 async def main():
-    print("Бот 'Мафія' оновлено: додано захист та перевірки ролей на нічних кнопках...")
+    print("Бот 'Мафія' оновлено: виправлено логіку обробки mkel_skip...")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
