@@ -29,7 +29,7 @@ threading.Thread(target=run_web_server, daemon=True).start()
 # --- 2. ОСНОВНИЙ КОД БОТА ---
 TOKEN = os.getenv("BOT_TOKEN")
 
-# Переходимо на HTML за замовчуванням задля безпеки імен з спецсимволами (_ *, [], тощо)
+# Переходимо на HTML за замовчуванням задля безпеки імен зі спецсимволами
 bot = Bot(
     token=TOKEN,
     default=DefaultBotProperties(parse_mode=ParseMode.HTML)
@@ -88,7 +88,7 @@ def get_sheriff_keyboard(players, user_id):
     ]
     buttons.append([InlineKeyboardButton(text="--- АБО ВИСТРІЛ ---", callback_data="ignore")])
     for uid, p in players.items():
-        if p["alive"] and uid != user_id:  # Шериф не може вистрілити в себе
+        if p["alive"] and uid != user_id:  
             buttons.append([InlineKeyboardButton(text=f"🔫 Вистрілити: {p['number']}. {p['name']}", callback_data=f"shot_{uid}")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -143,7 +143,7 @@ async def private_start(message: Message):
         f"👋 Привіт, <b>{user_name}</b>! Вітаю тебе в боті для гри в <b>Мафію</b>.\n\n"
         "📜 <b>Правила гри та ролі:</b>\n"
         "🔪 <b>Мафія</b> — спільно обирає жертву для вбивства.\n"
-        "🩺 <b>Доктор</b> — може врятувати від кулі мафії себе (не більше 1 разу за гру) чи іншого гравця.\n"
+        "🩺 <b>Доктор</b> — може врятувати від будь-якої кулі (себе — не більше 1 разу за гру) чи іншого гравця.\n"
         "🕵️ <b>Шериф</b> — перевіряє підозрілих або може сам відкрити вогонь (але не в себе).\n"
         "🍀 <b>Щасливчик</b> — мирний житель, який має шанс уникнути смерті від кулі мафії.\n"
         "😇 <b>Мирний житель</b> — бере участь у денних обговореннях і голосуваннях."
@@ -453,6 +453,7 @@ async def resolve_night():
     
     text = "🌅 <b>Ранок у місті.</b>\n\n"
     
+    # 1. Дія мафії
     if victim and victim != "skip":
         victim_player = game["players"].get(victim)
         if victim_player and victim_player["alive"]:
@@ -470,12 +471,13 @@ async def resolve_night():
     else:
         text += "Ніч від мафії пройшла спокійно (нікого не вбили).\n"
         
+    # 2. Дія шерифа (виправлена логіка захисту доктора)
     if sheriff_shot:
         shot_player = game["players"].get(sheriff_shot)
         if shot_player and shot_player["alive"]:
             shot_name = escape(shot_player['name'])
-            if sheriff_shot == doctor and sheriff_shot != victim:
-                text += f"🛡 Доктор також залікував рану від пострілу шерифа по <b>{shot_name}</b>!\n"
+            if sheriff_shot == doctor:
+                text += f"🛡 Доктор також залікував рану від шерифа у гравця <b>{shot_name}</b>!\n"
             else:
                 shot_player["alive"] = False
                 shot_role_key = shot_player["role"]
@@ -668,7 +670,7 @@ async def check_win_condition():
     return False
 
 async def main():
-    print("Бот запущено в режимі HTML з повним екрануванням імен та захистом мафії...")
+    print("Бот запущено в режимі HTML (з екрануванням імен та виправленою логікою лікаря/шерифа)...")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
