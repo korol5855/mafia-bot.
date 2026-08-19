@@ -528,10 +528,12 @@ async def start_night(first=False):
 
 
 async def night_timeout():
-    await asyncio.sleep(40)
-
-    if game["status"] == "night":
-        await resolve_night()
+    try:
+        await asyncio.sleep(40)
+        if game["status"] == "night":
+            await resolve_night()
+    except asyncio.CancelledError:
+        pass
 
 
 async def night_ready():
@@ -798,7 +800,6 @@ async def resolve_night():
         if target in game["players"] and game["players"][target]["alive"]:
             victim = game["players"][target]
 
-            # Якщо лікар лікував саме ціль шерифа
             if target == doctor_target:
                 text += (
                     f"🩺 Лікар врятував **{victim['name']}** "
@@ -836,10 +837,12 @@ async def resolve_night():
 # =========================
 
 async def day_timer():
-    await asyncio.sleep(60)
-
-    if game["status"] == "day":
-        await start_voting()
+    try:
+        await asyncio.sleep(60)
+        if game["status"] == "day":
+            await start_voting()
+    except asyncio.CancelledError:
+        pass
 
 
 async def start_voting(candidates=None):
@@ -882,10 +885,12 @@ async def start_voting(candidates=None):
 
 
 async def voting_timer():
-    await asyncio.sleep(30)
-
-    if game["status"] == "voting":
-        await resolve_voting()
+    try:
+        await asyncio.sleep(30)
+        if game["status"] == "voting":
+            await resolve_voting()
+    except asyncio.CancelledError:
+        pass
 
 
 @dp.callback_query(F.data.startswith("vote:"))
@@ -906,7 +911,6 @@ async def vote(callback: CallbackQuery):
         await callback.answer("Гравець вже мертвий.", show_alert=True)
         return
 
-    # Якщо це перестрілка — можна голосувати тільки за кандидатів
     if game["runoff"] and target not in game["runoff"]:
         await callback.answer("Обирай тільки кандидатів.", show_alert=True)
         return
