@@ -273,7 +273,7 @@ async def private_start(message: Message):
 
 
 # =========================
-# GROUP /start
+# GROUP /start & /mafia
 # =========================
 
 @dp.message(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}), F.text.startswith("/start"))
@@ -328,6 +328,23 @@ async def cancel_game(message: Message):
 
     await set_chat_locked(False)
     await message.answer("❌ Гру скасовано. Чат відкритий.")
+
+
+# =========================
+# ЗАХИСТ ВІД ПОВІДОМЛЕНЬ МЕРТВИХ
+# =========================
+
+@dp.message(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}))
+async def restrict_dead_speakers(message: Message):
+    if game["status"] in {"idle", "lobby", "finished"}:
+        return
+        
+    uid = message.from_user.id
+    if uid in game["players"] and not game["players"][uid]["alive"]:
+        try:
+            await message.delete()
+        except Exception:
+            pass
 
 
 # =========================
@@ -833,20 +850,26 @@ async def resolve_night():
 
 
 # =========================
-# DAY
+# DAY & TIMERS (з логуванням)
 # =========================
 
 async def day_timer():
+    print("⏳ [TIMER] Запущено таймер дня на 60 секунд...")
     try:
         await asyncio.sleep(60)
+        print(f"⏳ [TIMER] Таймер дня завершився. Поточний статус: {game['status']}")
         if game["status"] == "day":
             await start_voting()
     except asyncio.CancelledError:
-        pass
+        print("⏳ [TIMER] Таймер дня було скасовано.")
+    except Exception as e:
+        print(f"❌ [TIMER ERROR] Помилка в таймері дня: {e}")
 
 
 async def start_voting(candidates=None):
+    print(f"⚖️ [VOTING] Викликано start_voting. Кандидати: {candidates}, Статус: {game['status']}")
     if game["status"] not in {"day", "voting"}:
+        print(f"⚠️ [VOTING] Скасовано старт голосування, бо статус не правильний: {game['status']}")
         return
 
     cancel_timer()
@@ -885,12 +908,16 @@ async def start_voting(candidates=None):
 
 
 async def voting_timer():
+    print("⏳ [TIMER] Запущено таймер голосування на 30 секунд...")
     try:
         await asyncio.sleep(30)
+        print(f"⏳ [TIMER] Таймер голосування завершився. Поточний статус: {game['status']}")
         if game["status"] == "voting":
             await resolve_voting()
     except asyncio.CancelledError:
-        pass
+        print("⏳ [TIMER] Таймер голосування було скасовано.")
+    except Exception as e:
+        print(f"❌ [TIMER ERROR] Помилка в таймері голосування: {e}")
 
 
 @dp.callback_query(F.data.startswith("vote:"))
