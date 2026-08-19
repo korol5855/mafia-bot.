@@ -35,7 +35,7 @@ bot = Bot(
 dp = Dispatcher()
 
 game = {
-    "status": "waiting",   # Можливі стани: "waiting", "night", "discussion", "voting", "finished", "stopped"
+    "status": "waiting",   # Можливі стани: "waiting", "night", "discussion", "voting", "resolving_vote", "finished", "stopped"
     "players": {},         # {user_id: {"name": str, "role": str, "alive": bool, "number": int, "lucky_used": bool, "self_heals_used": int}}
     "chat_id": None,
     "mafia_votes": {},     # {mafia_user_id: target_user_id}
@@ -334,7 +334,10 @@ async def cb_night_actions(callback: CallbackQuery):
             target_name = game["players"].get(target_val, {}).get("name", "")
             choice_text = f"✅ Ваш голос за ціль: **{target_name}**"
         
-        await bot.send_message(game["chat_id"], chat_messages["mkel"])
+        try:
+            await bot.send_message(game["chat_id"], chat_messages["mkel"])
+        except Exception:
+            pass
         
     elif action in ["heal", "heal_skip"]:
         if player["role"] != "doctor":
@@ -343,7 +346,10 @@ async def cb_night_actions(callback: CallbackQuery):
         if action == "heal_skip":
             game["doctor_target"] = "skip"
             choice_text = "💤 Ви нікого не лікували цієї ночі."
-            await bot.send_message(game["chat_id"], chat_messages["heal_skip"])
+            try:
+                await bot.send_message(game["chat_id"], chat_messages["heal_skip"])
+            except Exception:
+                pass
         else:
             target_id = int(data[1])
             target_player = game["players"].get(target_id)
@@ -358,7 +364,10 @@ async def cb_night_actions(callback: CallbackQuery):
             game["doctor_target"] = target_id
             target_name = target_player["name"]
             choice_text = f"✅ Ви обрали кого лікувати: **{target_name}**"
-            await bot.send_message(game["chat_id"], chat_messages["heal"])
+            try:
+                await bot.send_message(game["chat_id"], chat_messages["heal"])
+            except Exception:
+                pass
             
     elif action in ["check", "shot"]:
         if player["role"] != "sheriff":
@@ -385,7 +394,10 @@ async def cb_night_actions(callback: CallbackQuery):
             await callback.message.answer(f"🔍 Перевірка завершена: {target_name} виявився(-лась) — {res}")
             game["sheriff_target"] = target_id
             game["sheriff_action_done"] = True
-            await bot.send_message(game["chat_id"], chat_messages["check"])
+            try:
+                await bot.send_message(game["chat_id"], chat_messages["check"])
+            except Exception:
+                pass
             
         elif action == "shot":
             target_name = target_player["name"]
@@ -394,7 +406,10 @@ async def cb_night_actions(callback: CallbackQuery):
             game["sheriff_shot"] = target_id
             game["sheriff_action_done"] = True
             await callback.message.answer(f"🔫 Ти вистрілив у гравця: {target_name}")
-            await bot.send_message(game["chat_id"], chat_messages["shot"])
+            try:
+                await bot.send_message(game["chat_id"], chat_messages["shot"])
+            except Exception:
+                pass
 
     try:
         await callback.message.edit_text(choice_text, reply_markup=None)
@@ -419,24 +434,20 @@ async def check_night_actions():
         await resolve_night()
 
 async def resolve_night():
-    if game["status"] != "night": return
+    if game["status"] != "night": 
+        return
     
-    victim = None
+    game["status"] = "resolving_night"
+    
+    victim = "skip"
     if game["mafia_votes"]:
         t_counts = {}
-        skip_count = 0
-        alive_mafias_count = sum(1 for p in game["players"].values() if p["alive"] and p["role"] == "mafia")
-        
         for m_id, t_id in game["mafia_votes"].items():
             if game["players"].get(m_id, {}).get("alive", False):
-                if t_id == "skip":
-                    skip_count += 1
-                else:
+                if t_id != "skip":
                     t_counts[t_id] = t_counts.get(t_id, 0) + 1
                     
-        if skip_count == alive_mafias_count:
-            victim = "skip"
-        elif t_counts:
+        if t_counts:
             max_v = max(t_counts.values())
             candidates = [t for t, cnt in t_counts.items() if cnt == max_v]
             victim = random.choice(candidates)
@@ -560,7 +571,10 @@ async def cb_vote(callback: CallbackQuery):
         await resolve_voting()
 
 async def resolve_voting():
-    if game["status"] != "voting": return
+    if game["status"] != "voting": 
+        return
+    
+    game["status"] = "resolving_vote"
     
     alive_players_ids = {uid for uid, p in game["players"].items() if p["alive"]}
     
@@ -574,7 +588,6 @@ async def resolve_voting():
         max_votes = max(vote_counts.values())
         candidates = [uid for uid, count in vote_counts.items() if count == max_votes]
         
-        # Виправлена логіка: якщо це була перестрілка і знову нічия — ніхто не виганяється
         if game["runoff_candidates"] and len(candidates) > 1:
             text += "Нічия під час перестрілки! Місто вирішило нікого не виганяти цього разу."
             game["runoff_candidates"].clear()
