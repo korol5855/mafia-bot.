@@ -7,7 +7,8 @@ from aiogram.types import (
     FSInputFile, ChatPermissions
 )
 
-TOKEN = "8812567133:AAE2nKwacL4VDY_XCLhuXRO4XlRMurMLgS4"
+import os
+TOKEN = os.getenv("BOT_TOKEN")
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
