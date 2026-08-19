@@ -1,8 +1,6 @@
 import asyncio
 import os
 import random
-import threading
-import time
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode, ChatType
@@ -21,14 +19,11 @@ if not TOKEN:
 bot = Bot(TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
 dp = Dispatcher()
 
-# Зберігаємо головний цикл подій тут на старті
-main_event_loop = None
-
 game = {
     "status": "idle",
     "chat_id": None,
     "players": {},
-    "timer_id": 0,
+    "timer_task": None,
     "mafia_votes": {},
     "doctor_target": None,
     "doctor_self_used": False,
@@ -46,23 +41,25 @@ ROLES = {
 }
 
 # =========================
-# ЗАЛІЗОБЕТОННІ ТАЙМЕРИ НА ПОТОКАХ
+# БЕЗПЕЧНІ АСИНХРОННІ ТАЙМЕРИ
 # =========================
 
 def cancel_timer():
-    game["timer_id"] += 1
+    if game["timer_task"] and not game["timer_task"].done():
+        game["timer_task"].cancel()
+    game["timer_task"] = None
 
-def start_safe_timer(seconds, callback_coro):
+def start_async_timer(seconds, coro_func):
     cancel_timer()
-    current_id = game["timer_id"]
-    loop = main_event_loop
+    
+    async def worker():
+        try:
+            await asyncio.sleep(seconds)
+            await coro_func()
+        except asyncio.CancelledError:
+            pass
 
-    def worker():
-        time.sleep(seconds)
-        if game["timer_id"] == current_id and loop and loop.is_running():
-            asyncio.run_coroutine_threadsafe(callback_coro(), loop)
-
-    threading.Thread(target=worker, daemon=True).start()
+    game["timer_task"] = asyncio.create_task(worker())
 
 # =========================
 # ДОПОМІЖНІ ФУНКЦІЇ
@@ -233,7 +230,7 @@ async def start_night():
         except Exception:
             pass
 
-    start_safe_timer(40, resolve_night)
+    start_async_timer(40, resolve_night)
 
 async def check_night_ready():
     alive_m = [u for u, p in game["players"].items() if p["alive"] and p["role"] == "mafia"]
@@ -337,7 +334,7 @@ async def resolve_night():
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⏩ Завершити обговорення", callback_data="force_voting")]])
     )
     
-    start_safe_timer(60, start_voting)
+    start_async_timer(60, start_voting)
 
 @dp.callback_query(F.data == "force_voting")
 async def force_voting_handler(callback: CallbackQuery):
@@ -356,7 +353,7 @@ async def start_voting(candidates=None):
     await set_chat_locked(True)
     
     await bot.send_message(game["chat_id"], "⚖️ **ГОЛОСУВАННЯ**\n🔒 Чат закритий.", reply_markup=vote_keyboard(candidates))
-    start_safe_timer(30, resolve_voting)
+    start_async_timer(30, resolve_voting)
 
 @dp.callback_query(F.data.startswith("vote:"))
 async def vote_action(callback: CallbackQuery):
@@ -433,9 +430,6 @@ async def check_win():
     return False
 
 async def main():
-    global main_event_loop
-    main_event_loop = asyncio.get_running_loop() # Захоплюємо правильний цикл подій
-    
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
