@@ -379,10 +379,10 @@ async def resolve_night(g):
     g["status"] = "day"
     await bot.send_message(
         chat_id, 
-        "🗣 **ДЕНЬ**\n💬 Обговорення (60 секунд).",
+        "🗣 **ДЕНЬ**\n💬 Обговорення (40 секунд).",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⏩ До голосування", callback_data=f"force_vote:{chat_id}")]])
     )
-    start_timer(g, 60, start_voting)
+    start_timer(g, 40, start_voting)
 
 @dp.callback_query(F.data.startswith("force_vote:"))
 async def cb_force_vote(callback: CallbackQuery):
@@ -478,7 +478,6 @@ async def resolve_voting(g):
     max_v = max(counts.values())
     cands = [u for u, c in counts.items() if c == max_v]
 
-    # ЯКЩО НІЧИЯ — ОДРАЗУ НАСТАЄ НІЧ БЕЗ ПЕРЕСТРІЛОК
     if len(cands) > 1:
         names_list = ", ".join([f"{g['players'][c]['number']}. {g['players'][c]['name']}" for c in cands])
         await finish_voting(g, f"⚖️ **НІЧИЯ!** Між кандидатами ({names_list}) рівна кількість голосів. Нікого не вигнано.")
