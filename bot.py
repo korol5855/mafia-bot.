@@ -65,7 +65,6 @@ async def reset_game(chat_id: int):
     if chat_id in games:
         cancel_timer(games[chat_id])
         del games[chat_id]
-    logging.info(f"Гра в чаті {chat_id} повністю скинута.")
 
 def alive_ids(g):
     return {uid for uid, p in g["players"].items() if p["alive"]}
@@ -95,7 +94,6 @@ async def set_chat_locked(chat_id: int, locked: bool):
     except Exception as e:
         logging.error(f"Помилка зміни прав чату {chat_id}: {e}")
 
-# --- КЛАВІАТУРИ ---
 def lobby_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎮 Увійти в гру", callback_data="join")],
@@ -130,7 +128,6 @@ def vote_kb(g, chat_id):
     btns.append([InlineKeyboardButton(text="💤 Пропуск / Утриматись", callback_data=f"v:skip:{chat_id}")])
     return InlineKeyboardMarkup(inline_keyboard=btns)
 
-# --- СТАРТ ТА СКАСУВАННЯ ---
 @dp.message(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}), F.text.regexp(r"^/mafia($|@)"))
 async def cmd_start_game(message: Message):
     chat_id = message.chat.id
@@ -139,11 +136,10 @@ async def cmd_start_game(message: Message):
     g["status"] = "lobby"
     await set_chat_locked(chat_id, False)
 
-    logging.info(f"Створено нове лобі гри в чаті {chat_id}")
     await message.answer(
         "🎴 НОВА ГРА В МАФІЮ\n\n"
         "Натискайте «Увійти в гру» (мінімум 4 гравці).\n"
-        "*(Обов'язково напишіть боту в ЛС хоча б одне повідомлення або /start, інакше він не зможе надіслати ролі та голосування!)*", 
+        "*(Обов'язково напишіть боту в ЛС хоча б одне повідомлення, інакше він не зможе надіслати ролі!)*", 
         reply_markup=lobby_kb()
     )
 
@@ -171,7 +167,6 @@ async def cb_join(callback: CallbackQuery):
         await callback.message.edit_text(f"🎴 ЗБІР ГРАВЦІВ\n\nУчасники ({len(g['players'])}):\n{names}", reply_markup=lobby_kb())
     except Exception:
         pass  
-        
     await callback.answer("Ти у грі!")
 
 @dp.callback_query(F.data == "start")
@@ -223,7 +218,6 @@ async def cb_launch(callback: CallbackQuery):
         pass
     await start_night(g)
 
-# --- НІЧНА ФАЗА ---
 async def start_night(g):
     cancel_timer(g)
     g["status"] = "night"
@@ -280,8 +274,7 @@ async def cb_mafia(callback: CallbackQuery):
     chat_id = int(chat_id_str)
     if chat_id not in games: return
     g = games[chat_id]
-    if g["status"] != "night": 
-        return await callback.answer("Зараз не ніч.", show_alert=True)
+    if g["status"] != "night": return
     
     uid = callback.from_user.id
     if uid not in g["players"] or g["players"][uid]["role"] != "mafia": return
@@ -301,8 +294,7 @@ async def cb_doctor(callback: CallbackQuery):
     chat_id = int(chat_id_str)
     if chat_id not in games: return
     g = games[chat_id]
-    if g["status"] != "night": 
-        return await callback.answer("Зараз не ніч.", show_alert=True)
+    if g["status"] != "night": return
         
     uid = callback.from_user.id
     if uid not in g["players"] or g["players"][uid]["role"] != "doctor": return
@@ -322,8 +314,7 @@ async def cb_sheriff(callback: CallbackQuery):
     chat_id = int(chat_id_str)
     if chat_id not in games: return
     g = games[chat_id]
-    if g["status"] != "night": 
-        return await callback.answer("Зараз не ніч.", show_alert=True)
+    if g["status"] != "night": return
         
     uid = callback.from_user.id
     if uid not in g["players"] or g["players"][uid]["role"] != "sheriff": return
@@ -396,7 +387,6 @@ async def cb_force_vote(callback: CallbackQuery):
     await callback.answer()
     await start_voting(g)
 
-# --- ГОЛОСУВАННЯ В ЛС ---
 async def start_voting(g):
     if g["status"] not in {"day", "voting"}: return
     cancel_timer(g)
@@ -470,7 +460,6 @@ async def resolve_voting(g):
         if v in alive and isinstance(t, int) and t in alive:
             counts[t] = counts.get(t, 0) + 1
 
-    chat_id = g["chat_id"]
     if not counts:
         await finish_voting(g, "⚖️ Ніхто не проголосував проти живих гравців.")
         return
@@ -478,7 +467,6 @@ async def resolve_voting(g):
     max_v = max(counts.values())
     cands = [u for u, c in counts.items() if c == max_v]
 
-    # ПОВНІСТЮ СУВОРА НІЧИЯ БЕЗ ЖОДНИХ ПЕРЕСТРІЛОК
     if len(cands) > 1:
         names_list = ", ".join([f"{g['players'][c]['number']}. {g['players'][c]['name']}" for c in cands])
         await finish_voting(g, f"⚖️ **НІЧИЯ!** Між кандидатами ({names_list}) рівна кількість голосів. Нікого не вигнано.")
