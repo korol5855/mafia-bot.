@@ -34,6 +34,7 @@ game = {
     "players": {},       # {user_id: {"name": str, "role": str, "alive": bool, "number": int}}
     "chat_id": None,
     "mafia_target": None,
+    
     "doctor_target": None,
     "commissioner_target": None,
     "commissioner_shot": None,
@@ -41,6 +42,13 @@ game = {
     "votes": {},         # {voter_id: target_id}
     "runoff_candidates": [], # Список кандидатів у разі нічиєї
     "timer_task": None
+}
+
+ROLE_ICONS = {
+    "mafia": "Мафія 🔪",
+    "doctor": "Доктор 🩺",
+    "commissioner": "Шериф 🕵️",
+    "civilian": "Мирний житель 😇"
 }
 
 # --- КЛАВІАТУРИ ---
@@ -148,18 +156,18 @@ async def cmd_commands(message: Message):
         )
         
     elif text == "/cancel":
-        game["status"] = "waiting"
+        game["status"] = "stopped"
         game["players"].clear()
         if game["timer_task"]:
             game["timer_task"].cancel()
         await mute_chat(message.chat.id, False)
-        await message.answer("❌ ГРУ СКАСОВАНО! Чат розблоковано. Можна розпочати нову за командою /mafia")
+        await message.answer("❌ ГРУ СКАСОВАНО! Чат розблоковано. Можна розпочати нову за командую /mafia")
 
 # --- ВХІД ТА СТАРТ ГРИ ---
 @dp.callback_query(F.data == "join_game")
 async def cb_join(callback: CallbackQuery):
     if game["status"] != "waiting":
-        return await callback.answer("Гра вже почалася!", show_alert=True)
+        return await callback.answer("Зараз немає активного набору в гру!", show_alert=True)
         
     user = callback.from_user
     if user.id in game["players"]:
@@ -312,7 +320,8 @@ async def resolve_night():
         else:
             if game["players"].get(victim, {}).get("alive", False):
                 game["players"][victim]["alive"] = False
-                role_name = game["players"][victim]["role"]
+                role_key = game["players"][victim]["role"]
+                role_name = ROLE_ICONS.get(role_key, role_key)
                 text += f"💀 Вбито мафією: **{game['players'][victim]['name']}**! Роль була: **{role_name}** 🪦\n"
     else:
         text += "Ніч від мафії пройшла спокійно.\n"
@@ -323,7 +332,8 @@ async def resolve_night():
         else:
             if game["players"].get(comm_shot, {}).get("alive", False):
                 game["players"][comm_shot]["alive"] = False
-                shot_role = game["players"][comm_shot]["role"]
+                shot_role_key = game["players"][comm_shot]["role"]
+                shot_role = ROLE_ICONS.get(shot_role_key, shot_role_key)
                 text += f"🎯 Шериф здійснив постріл і вбив **{game['players'][comm_shot]['name']}**! Роль була: **{shot_role}** 🪦\n"
 
     text += "\n" + get_alive_list_text()
@@ -422,7 +432,8 @@ async def resolve_voting():
         
         exiled = candidates[0]
         game["players"][exiled]["alive"] = False
-        role_name = game["players"][exiled]["role"]
+        role_key = game["players"][exiled]["role"]
+        role_name = ROLE_ICONS.get(role_key, role_key)
         text += f"⚖️ Місто вигнало гравця **{game['players'][exiled]['name']}**.\nЙого роль була: **{role_name}** 🪦"
         game["runoff_candidates"].clear()
         await finalize_voting_round(text)
