@@ -142,8 +142,8 @@ async def cmd_commands(message: Message):
         game["players"].clear()
         game["chat_id"] = message.chat.id
         await message.answer(
-            "🕶 Місто засинає... Оголошено збір на Мафію!\n\n"
-            "Тисніть кнопку нижче для участі:\n*(Не забудьте написати /start в ЛС боту!)*", 
+            "🎴 Увага! Оголошено збір на нову гру в Мафію!\n\n"
+            "Тисніть кнопку нижче для участі:",
             reply_markup=get_join_keyboard()
         )
         
