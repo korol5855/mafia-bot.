@@ -469,7 +469,7 @@ def check_win_condition():
         game["status"] = "waiting"
         return True
     return False
-@dp.message(F.text.startswith("/start"), F.chat.type == "private")
+@dp.message(F.text == "/start", F.chat.type == "private")
 async def private_start(message: Message):
     user_name = message.from_user.first_name
     await message.answer(
