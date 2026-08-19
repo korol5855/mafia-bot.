@@ -549,14 +549,14 @@ async def finalize_voting_round(text: str):
 
 async def check_win_condition():
     alive_mafia = sum(1 for p in game["players"].values() if p["alive"] and p["role"] == "mafia")
-    alive_civilians = sum(1 for p in game["players"].values() if p["alive"] and p["role"] != "mafia")
+    alive_non_mafia = sum(1 for p in game["players"].values() if p["alive"] and p["role"] != "mafia")
     
     if alive_mafia == 0:
         summary_text = "🎉 ПЕРЕМОГА МИРНИХ! Всю мафію знищено! 😇\n\n" + format_all_roles_summary()
         await bot.send_message(game["chat_id"], summary_text)
         game["status"] = "waiting"
         return True
-    elif alive_mafia >= alive_civilians:
+    elif alive_mafia >= alive_non_mafia:
         summary_text = "🔪 ПЕРЕМОГА МАФІЇ! Вони захопили місто! 😈\n\n" + format_all_roles_summary()
         await bot.send_message(game["chat_id"], summary_text)
         game["status"] = "waiting"
@@ -564,7 +564,7 @@ async def check_win_condition():
     return False
 
 async def main():
-    print("Бот 'Мафія' оновлено: назву ролі змінено на Шериф...")
+    print("Бот 'Мафія' оновлено: назву ролі змінено на Шериф та оновлено перевірку перемоги...")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
