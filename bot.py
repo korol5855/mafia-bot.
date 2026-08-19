@@ -28,7 +28,6 @@ threading.Thread(target=run_web_server, daemon=True).start()
 # --- 2. ОСНОВНИЙ КОД БОТА ---
 TOKEN = os.getenv("BOT_TOKEN")
 
-# Виправлено: додано глобальний parse_mode через DefaultBotProperties
 bot = Bot(
     token=TOKEN,
     default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN)
@@ -348,7 +347,6 @@ async def cb_night_actions(callback: CallbackQuery):
             if not target_player or not target_player["alive"]:
                 return await callback.answer("❌ Цей гравець уже мертвий!", show_alert=True)
                 
-            # Перевірка ліміту самолікування доктора (не більше 1 разу за гру)
             if target_id == user_id:
                 if player["self_heals_used"] >= 1:
                     return await callback.answer("❌ Ви вже використали своє єдине самолікування за цю гру!", show_alert=True)
@@ -368,7 +366,6 @@ async def cb_night_actions(callback: CallbackQuery):
             
         target_id = int(data[1])
         
-        # Заборона шерифу стріляти в себе
         if action == "shot" and target_id == user_id:
             return await callback.answer("❌ Ви не можете вистрілити в самого себе!", show_alert=True)
             
@@ -528,8 +525,11 @@ async def cb_vote(callback: CallbackQuery):
         return await callback.answer("❌ Голосування зараз не триває!", show_alert=True)
         
     voter_id = callback.from_user.id
-    if not game["players"].get(voter_id, {}).get("alive", False):
-        return await callback.answer("Мертві не голосують!", show_alert=True)
+    player = game["players"].get(voter_id)
+    
+    # Голосувати можуть тільки живі гравці
+    if not player or not player["alive"]:
+        return await callback.answer("❌ Мертві не голосують або ви вже не у грі!", show_alert=True)
         
     target_id = int(callback.data.split("_")[1])
     target_player = game["players"].get(target_id)
@@ -549,8 +549,11 @@ async def cb_vote(callback: CallbackQuery):
 
     await callback.answer("Голос прийнято!")
     
-    alive_players = [uid for uid, p in game["players"].items() if p["alive"]]
-    if len(game["votes"]) >= len(alive_players):
+    # Перевіряємо кількість голосів серед актуальних живих гравців
+    alive_players_ids = {uid for uid, p in game["players"].items() if p["alive"]}
+    voted_alive_count = sum(1 for v_id in game["votes"] if v_id in alive_players_ids)
+    
+    if voted_alive_count >= len(alive_players_ids):
         if game["timer_task"]:
             game["timer_task"].cancel()
         await resolve_voting()
@@ -558,9 +561,13 @@ async def cb_vote(callback: CallbackQuery):
 async def resolve_voting():
     if game["status"] != "voting": return
     
+    alive_players_ids = {uid for uid, p in game["players"].items() if p["alive"]}
+    
     vote_counts = {}
     for voter, target in game["votes"].items():
-        vote_counts[target] = vote_counts.get(target, 0) + 1
+        # Враховуємо голос ТІЛЬКИ якщо той, хто голосував, і той, на кого голосують, досі живі
+        if voter in alive_players_ids and target in alive_players_ids:
+            vote_counts[target] = vote_counts.get(target, 0) + 1
         
     text = "📊 Результати голосування:\n\n"
     if vote_counts:
@@ -651,7 +658,7 @@ async def check_win_condition():
     return False
 
 async def main():
-    print("Бот оновлено з підтримкою Markdown та виправленнями балансу...")
+    print("Бот оновлено з підтримкою Markdown та захищеною системою голосування...")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
