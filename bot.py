@@ -104,25 +104,25 @@ def lobby_kb():
         [InlineKeyboardButton(text="🚀 Почати гру", callback_data="start")]
     ])
 
-def mafia_kb(g):
-    btns = [[InlineKeyboardButton(text=f"{p['number']}. {p['name']}", callback_data=f"m:{uid}")]
+def mafia_kb(g, chat_id):
+    btns = [[InlineKeyboardButton(text=f"{p['number']}. {p['name']}", callback_data=f"m:{uid}:{chat_id}")]
             for uid, p in g["players"].items() if p["alive"] and p["role"] != "mafia"]
-    btns.append([InlineKeyboardButton(text="💤 Пропуск", callback_data="m:skip")])
+    btns.append([InlineKeyboardButton(text="💤 Пропуск", callback_data=f"m:skip:{chat_id}")])
     return InlineKeyboardMarkup(inline_keyboard=btns)
 
-def doctor_kb(g):
-    btns = [[InlineKeyboardButton(text=f"{p['number']}. {p['name']}", callback_data=f"d:{uid}")]
+def doctor_kb(g, chat_id):
+    btns = [[InlineKeyboardButton(text=f"{p['number']}. {p['name']}", callback_data=f"d:{uid}:{chat_id}")]
             for uid, p in g["players"].items() if p["alive"]]
-    btns.append([InlineKeyboardButton(text="💤 Пропуск", callback_data=f"d:skip")])
+    btns.append([InlineKeyboardButton(text="💤 Пропуск", callback_data=f"d:skip:{chat_id}")])
     return InlineKeyboardMarkup(inline_keyboard=btns)
 
-def sheriff_kb(g, uid_self):
+def sheriff_kb(g, uid_self, chat_id):
     btns = []
     for uid, p in g["players"].items():
         if p["alive"] and uid != uid_self:
-            btns.append([InlineKeyboardButton(text=f"🔍 Перевірити {p['number']}. {p['name']}", callback_data=f"chk:{uid}")])
-            btns.append([InlineKeyboardButton(text=f"🔫 Вистрілити {p['number']}. {p['name']}", callback_data=f"sht:{uid}")])
-    btns.append([InlineKeyboardButton(text="💤 Нічого не робити", callback_data="sht:skip")])
+            btns.append([InlineKeyboardButton(text=f"🔍 Перевірити {p['number']}. {p['name']}", callback_data=f"chk:{uid}:{chat_id}")])
+            btns.append([InlineKeyboardButton(text=f"🔫 Вистрілити {p['number']}. {p['name']}", callback_data=f"sht:{uid}:{chat_id}")])
+    btns.append([InlineKeyboardButton(text="💤 Нічого не робити", callback_data=f"sht:skip:{chat_id}")])
     return InlineKeyboardMarkup(inline_keyboard=btns)
 
 def vote_kb(g, candidates=None):
@@ -243,11 +243,11 @@ async def start_night(g):
         try:
             if p["role"] == "mafia":
                 mafia_team = "\n".join(f"• {mp['name']}" for mu, mp in g["players"].items() if mp["role"] == "mafia")
-                await bot.send_message(uid, f"🔪 **МАФІЯ**\nКоманда:\n{mafia_team}\n\nОбери жертву:\n\n{alive_text(g)}", reply_markup=mafia_kb(g))
+                await bot.send_message(uid, f"🔪 **МАФІЯ**\nКоманда:\n{mafia_team}\n\nОбери жертву:\n\n{alive_text(g)}", reply_markup=mafia_kb(g, chat_id))
             elif p["role"] == "doctor":
-                await bot.send_message(uid, f"🩺 **ЛІКАР**\nОбери кого лікувати:\n\n{alive_text(g)}", reply_markup=doctor_kb(g))
+                await bot.send_message(uid, f"🩺 **ЛІКАР**\nОбери кого лікувати:\n\n{alive_text(g)}", reply_markup=doctor_kb(g, chat_id))
             elif p["role"] == "sheriff":
-                await bot.send_message(uid, f"🕵️ **ШЕРИФ**\nОбери дію:\n\n{alive_text(g)}", reply_markup=sheriff_kb(g, uid))
+                await bot.send_message(uid, f"🕵️ **ШЕРИФ**\nОбери дію:\n\n{alive_text(g)}", reply_markup=sheriff_kb(g, uid, chat_id))
             elif p["role"] == "lucky":
                 await bot.send_message(uid, f"🍀 **ЩАСЛИВЧИК**\nТи володієш пасивною вдачею (маєш 50% шанс уникнути смерті вночі).\n\n{alive_text(g)}")
             else:
@@ -270,94 +270,131 @@ async def check_night_ready(g):
 
 @dp.callback_query(F.data.startswith("m:"))
 async def cb_mafia(callback: CallbackQuery):
-    for chat_id, g in games.items():
-        if g["status"] == "night" and callback.from_user.id in g["players"] and g["players"][callback.from_user.id]["role"] == "mafia":
-            uid = callback.from_user.id
-            if uid in g["mafia_votes"]:
-                return await callback.answer("Ти вже вибрав жертву!", show_alert=True)
-            
-            val = callback.data.split(":")[1]
-            if val != "skip":
-                target = int(val)
-                if target not in g["players"] or not g["players"][target]["alive"]:
-                    return await callback.answer("Гравець вже мертвий.", show_alert=True)
-                if g["players"][target]["role"] == "mafia":
-                    return await callback.answer("Не можна вбити свого!", show_alert=True)
-                g["mafia_votes"][uid] = target
-            else:
-                g["mafia_votes"][uid] = "skip"
-            
-            try: await callback.message.edit_text("🔪 Вибір мафії збережено.", reply_markup=None)
-            except Exception: pass
-            
-            # Повідомити іншу мафію про вибір
-            for mu, mp in g["players"].items():
-                if mu != uid and mp["role"] == "mafia" and mp["alive"]:
-                    try:
-                        await bot.send_message(mu, f"💬 Напарник {g['players'][uid]['name']} зробив свій вибір.")
-                    except Exception:
-                        pass
+    parts = callback.data.split(":")
+    if len(parts) < 3:
+        return await callback.answer("Застаріла кнопка.", show_alert=True)
+    
+    val, chat_id_str = parts[1], parts[2]
+    chat_id = int(chat_id_str)
+    
+    if chat_id not in games:
+        return await callback.answer("Ця гра вже закінчилась.", show_alert=True)
+    
+    g = games[chat_id]
+    if g["status"] != "night":
+        return await callback.answer("Зараз не ніч.", show_alert=True)
+        
+    uid = callback.from_user.id
+    if uid not in g["players"] or g["players"][uid]["role"] != "mafia":
+        return await callback.answer("Ти не мафія!", show_alert=True)
+        
+    if uid in g["mafia_votes"]:
+        return await callback.answer("Ти вже вибрав жертву!", show_alert=True)
+    
+    if val != "skip":
+        target = int(val)
+        if target not in g["players"] or not g["players"][target]["alive"]:
+            return await callback.answer("Гравець вже мертвий.", show_alert=True)
+        if g["players"][target]["role"] == "mafia":
+            return await callback.answer("Не можна вбити свого!", show_alert=True)
+        g["mafia_votes"][uid] = target
+    else:
+        g["mafia_votes"][uid] = "skip"
+    
+    try: await callback.message.edit_text("🔪 Вибір мафії збережено.", reply_markup=None)
+    except Exception: pass
+    
+    for mu, mp in g["players"].items():
+        if mu != uid and mp["role"] == "mafia" and mp["alive"]:
+            try:
+                await bot.send_message(mu, f"💬 Напарник {g['players'][uid]['name']} зробив свій вибір.")
+            except Exception:
+                pass
 
-            await callback.answer("Збережено!")
-            await check_night_ready(g)
-            return
-    await callback.answer("Зараз не ніч або ти не мафія.", show_alert=True)
+    await callback.answer("Збережено!")
+    await check_night_ready(g)
 
 @dp.callback_query(F.data.startswith("d:"))
 async def cb_doctor(callback: CallbackQuery):
-    for chat_id, g in games.items():
-        if g["status"] == "night" and callback.from_user.id in g["players"] and g["players"][callback.from_user.id]["role"] == "doctor":
-            if g["doctor_target"] is not None:
-                return await callback.answer("Ти вже зробив вибір!", show_alert=True)
+    parts = callback.data.split(":")
+    if len(parts) < 3:
+        return await callback.answer("Застаріла кнопка.", show_alert=True)
+    
+    val, chat_id_str = parts[1], parts[2]
+    chat_id = int(chat_id_str)
+    
+    if chat_id not in games:
+        return await callback.answer("Ця гра вже закінчилась.", show_alert=True)
+        
+    g = games[chat_id]
+    if g["status"] != "night":
+        return await callback.answer("Зараз не ніч.", show_alert=True)
+        
+    uid = callback.from_user.id
+    if uid not in g["players"] or g["players"][uid]["role"] != "doctor":
+        return await callback.answer("Ти не лікар!", show_alert=True)
+        
+    if g["doctor_target"] is not None:
+        return await callback.answer("Ти вже зробив вибір!", show_alert=True)
 
-            val = callback.data.split(":")[1]
-            if val != "skip":
-                target = int(val)
-                if target not in g["players"] or not g["players"][target]["alive"]:
-                    return await callback.answer("Гравець вже мертвий.", show_alert=True)
-                g["doctor_target"] = target
-            else:
-                g["doctor_target"] = "skip"
-            
-            try: await callback.message.edit_text("🩺 Вибір лікаря збережено.", reply_markup=None)
-            except Exception: pass
-            
-            await callback.answer("Збережено!")
-            await check_night_ready(g)
-            return
-    await callback.answer("Зараз не ніч або ти не лікар.", show_alert=True)
+    if val != "skip":
+        target = int(val)
+        if target not in g["players"] or not g["players"][target]["alive"]:
+            return await callback.answer("Гравець вже мертвий.", show_alert=True)
+        g["doctor_target"] = target
+    else:
+        g["doctor_target"] = "skip"
+    
+    try: await callback.message.edit_text("🩺 Вибір лікаря збережено.", reply_markup=None)
+    except Exception: pass
+    
+    await callback.answer("Збережено!")
+    await check_night_ready(g)
 
 @dp.callback_query(F.data.startswith(("chk:", "sht:")))
 async def cb_sheriff(callback: CallbackQuery):
-    for chat_id, g in games.items():
-        if g["status"] == "night" and callback.from_user.id in g["players"] and g["players"][callback.from_user.id]["role"] == "sheriff":
-            if g["sheriff_action"]:
-                return await callback.answer("Ти вже зробив дію!", show_alert=True)
+    parts = callback.data.split(":")
+    if len(parts) < 3:
+        return await callback.answer("Застаріла кнопка.", show_alert=True)
+        
+    prefix, val, chat_id_str = parts[0], parts[1], parts[2]
+    chat_id = int(chat_id_str)
+    
+    if chat_id not in games:
+        return await callback.answer("Ця гра вже закінчилась.", show_alert=True)
+        
+    g = games[chat_id]
+    if g["status"] != "night":
+        return await callback.answer("Зараз не ніч.", show_alert=True)
+        
+    uid = callback.from_user.id
+    if uid not in g["players"] or g["players"][uid]["role"] != "sheriff":
+        return await callback.answer("Ти не шериф!", show_alert=True)
+        
+    if g["sheriff_action"]:
+        return await callback.answer("Ти вже зробив дію!", show_alert=True)
 
-            prefix, val = callback.data.split(":")
-            if val == "skip":
-                g["sheriff_action"] = ("skip", None)
-                try: await callback.message.edit_text("💤 Шериф нічого не робив.", reply_markup=None)
-                except Exception: pass
-            else:
-                target = int(val)
-                if target not in g["players"] or not g["players"][target]["alive"]:
-                    return await callback.answer("Гравець вже мертвий.", show_alert=True)
-                    
-                if prefix == "chk":
-                    res = "🔪 МАФІЯ" if g["players"][target]["role"] == "mafia" else "😇 НЕ МАФІЯ"
-                    g["sheriff_action"] = ("check", target)
-                    try: await callback.message.edit_text(f"🔍 Перевірка завершена.\n\nРезультат: Гравець №{g['players'][target]['number']} — {res}", reply_markup=None)
-                    except Exception: pass
-                else:
-                    g["sheriff_action"] = ("shot", target)
-                    try: await callback.message.edit_text("🔫 Постріл збережено.", reply_markup=None)
-                    except Exception: pass
-                    
-            await callback.answer("Збережено!")
-            await check_night_ready(g)
-            return
-    await callback.answer("Зараз не ніч або ти не шериф.", show_alert=True)
+    if val == "skip":
+        g["sheriff_action"] = ("skip", None)
+        try: await callback.message.edit_text("💤 Шериф нічого не робив.", reply_markup=None)
+        except Exception: pass
+    else:
+        target = int(val)
+        if target not in g["players"] or not g["players"][target]["alive"]:
+            return await callback.answer("Гравець вже мертвий.", show_alert=True)
+            
+        if prefix == "chk":
+            res = "🔪 МАФІЯ" if g["players"][target]["role"] == "mafia" else "😇 НЕ МАФІЯ"
+            g["sheriff_action"] = ("check", target)
+            try: await callback.message.edit_text(f"🔍 Перевірка завершена.\n\nРезультат: Гравець №{g['players'][target]['number']} — {res}", reply_markup=None)
+            except Exception: pass
+        else:
+            g["sheriff_action"] = ("shot", target)
+            try: await callback.message.edit_text("🔫 Постріл збережено.", reply_markup=None)
+            except Exception: pass
+            
+    await callback.answer("Збережено!")
+    await check_night_ready(g)
 
 async def resolve_night(g):
     if g["status"] != "night": 
@@ -502,9 +539,10 @@ async def resolve_voting(g):
     exiled = cands[0]
     g["players"][exiled]["alive"] = False
     g["runoff"] = None
-    player_name = g['players'][exiled]['name']
-    player_role = ROLES[g['players'][exiled]['role']]
-    await finish_voting(g, f"⚖️ Вигнано **{player_name}**.\nЙого роль: **{player_role}**")
+    
+    p_name = g["players"][exiled]["name"]
+    p_role = ROLES[g['players'][exiled]['role']]
+    await finish_voting(g, f"⚖️ Вигнано **{p_name}**.\nЙого роль: **{p_role}**")
 
 async def finish_voting(g, text):
     chat_id = g["chat_id"]
