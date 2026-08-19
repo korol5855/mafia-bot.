@@ -35,8 +35,8 @@ bot = Bot(
 dp = Dispatcher()
 
 game = {
-    "status": "waiting",
-    "players": {},       # {user_id: {"name": str, "role": str, "alive": bool, "number": int, "lucky_used": bool, "self_heals_used": int}}
+    "status": "waiting",   # Можливі стани: "waiting", "night", "discussion", "voting", "finished", "stopped"
+    "players": {},         # {user_id: {"name": str, "role": str, "alive": bool, "number": int, "lucky_used": bool, "self_heals_used": int}}
     "chat_id": None,
     "mafia_votes": {},     # {mafia_user_id: target_user_id}
     "doctor_target": None,
@@ -150,6 +150,10 @@ async def cmd_commands(message: Message):
     text = message.text.lower().split('@')[0]
     
     if text in ["/mafia", "/start"] and message.chat.type != "private":
+        # Дозволяємо почати новий набір тільки якщо гра закінчена, або це стан waiting/stopped
+        if game["status"] not in ["waiting", "finished", "stopped"] and bool(game["players"]):
+            return await message.answer("⚠️ Неможливо почати нову гру: попередня партія ще триває!")
+            
         game["status"] = "waiting"
         game["players"].clear()
         game["chat_id"] = message.chat.id
@@ -646,19 +650,19 @@ async def check_win_condition():
     alive_non_mafia = sum(1 for p in game["players"].values() if p["alive"] and p["role"] != "mafia")
     
     if alive_mafia == 0:
+        game["status"] = "finished"  # Фіксуємо окремий стан завершеної гри
         summary_text = "🎉 ПЕРЕМОГА МИРНИХ! Всю мафію знищено! 😇\n\n" + format_all_roles_summary()
         await bot.send_message(game["chat_id"], summary_text)
-        game["status"] = "waiting"
         return True
     elif alive_mafia >= alive_non_mafia:
+        game["status"] = "finished"  # Фіксуємо окремий стан завершеної гри
         summary_text = "🔪 ПЕРЕМОГА МАФІЇ! Вони захопили місто! 😈\n\n" + format_all_roles_summary()
         await bot.send_message(game["chat_id"], summary_text)
-        game["status"] = "waiting"
         return True
     return False
 
 async def main():
-    print("Бот оновлено з підтримкою Markdown та захищеною системою голосування...")
+    print("Бот оновлено: статус 'finished', захищене голосування та безпечний перезапуск...")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
