@@ -125,7 +125,7 @@ def format_all_roles_summary():
 async def cmd_commands(message: Message):
     text = message.text.lower().split('@')[0]
     
-if text in ["/mafia", "/start"] and message.chat.type != "private":
+    if text in ["/mafia", "/start"] and message.chat.type != "private":
         game["status"] = "waiting"
         game["players"].clear()
         game["chat_id"] = message.chat.id
