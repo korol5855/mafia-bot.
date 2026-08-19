@@ -27,7 +27,7 @@ game = {
     "mafia_votes": {},
     "doctor_target": None,
     "sheriff_action": None,
-    "lucky_action": None,   # вибір щасливчика вночі
+    "lucky_action": None,
     "votes": {},
     "runoff": None,
 }
@@ -134,7 +134,7 @@ async def cmd_start_game(message: Message):
 
     await message.answer(
         "🎴 НОВА ГРА В МАФІЮ (ЗІ ЩАСЛИВЧИКОМ)\n\n"
-        "Натискайте «Увійти в гру» (мінімум 5 гравців для повноцінної ролі щасливчика).\n"
+        "Натискайте «Увійти в гру» (мінімум 5 гравців).\n"
         "*(Напиши боту в ЛС хоча б одне повідомлення, щоб він міг надсилати ролі!)*", 
         reply_markup=lobby_kb()
     )
@@ -178,7 +178,7 @@ async def cb_launch(callback: CallbackQuery):
     if game["status"] != "lobby":
         return await callback.answer("Гра вже йде.", show_alert=True)
     if len(game["players"]) < 5:
-        return await callback.answer("Для гри з Щасливчиком треба мінімум 5 гравців!", show_alert=True)
+        return await callback.answer("Треба мінімум 5 гравців!", show_alert=True)
 
     ids = list(game["players"].keys())
     random.shuffle(ids)
@@ -338,8 +338,6 @@ async def resolve_night():
 
     m_target = max(counts, key=counts.get) if counts else None
     d_target = game["doctor_target"]
-    
-    # Ефект щасливчика: якщо мафія стріляє в щасливчика, є шанс 50% що він ухилиться або виживе
     lucky_uid = next((u for u, p in game["players"].items() if p["role"] == "lucky"), None)
     
     text = "🌅 **РАНОК У МІСТІ**\n\n"
@@ -452,7 +450,7 @@ async def resolve_voting():
     exiled = cands[0]
     game["players"][exiled]["alive"] = False
     game["runoff"] = None
-    await finish_voting(f"⚖️ Вигнано **{game['players'][exiled]['name']}**.\nЙого роль: **{ROLES[game['players'][exiled]['role']]**")
+    await finish_voting(f"⚖️ Вигнано **{game['players'][exiled]['name']}**.\nЙого роль: **{ROLES[game['players'][exiled]['role']]}**")
 
 async def finish_voting(text):
     await set_chat_locked(False)
@@ -481,7 +479,7 @@ async def check_win():
 
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
-    print("Бот запущено зі Щасливчиком!")
+    print("Бот успішно запущено!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
