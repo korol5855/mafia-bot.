@@ -327,6 +327,10 @@ async def cb_night_actions(callback: CallbackQuery):
             if not target_player or not target_player["alive"]:
                 return await callback.answer("❌ Цей гравець уже мертвий!", show_alert=True)
                 
+            # Додатковий захист від стрільби по союзниках-мафіози (навіть при спробі підробки callback)
+            if target_player["role"] == "mafia":
+                return await callback.answer("❌ Мафія не може вбити мафію!", show_alert=True)
+                
         game["mafia_votes"][user_id] = target_val
         
         if target_val == "skip":
@@ -662,7 +666,7 @@ async def check_win_condition():
     return False
 
 async def main():
-    print("Бот оновлено: статус 'finished', захищене голосування та безпечний перезапуск...")
+    print("Бот готовий до роботи з усіма перевірками безпеки та статусом 'finished'...")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
