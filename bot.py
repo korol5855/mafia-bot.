@@ -4,6 +4,8 @@ import random
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from aiogram import Bot, Dispatcher, F
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
 from aiogram.types import (
     Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, 
     FSInputFile, ChatPermissions
@@ -26,7 +28,11 @@ threading.Thread(target=run_web_server, daemon=True).start()
 # --- 2. ОСНОВНИЙ КОД БОТА ---
 TOKEN = os.getenv("BOT_TOKEN")
 
-bot = Bot(token=TOKEN)
+# Виправлено: додано глобальний parse_mode через DefaultBotProperties
+bot = Bot(
+    token=TOKEN,
+    default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN)
+)
 dp = Dispatcher()
 
 game = {
@@ -645,7 +651,7 @@ async def check_win_condition():
     return False
 
 async def main():
-    print("Бот оновлено: обмежено самостріл шерифа та лімітовано самолікування доктора...")
+    print("Бот оновлено з підтримкою Markdown та виправленнями балансу...")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
