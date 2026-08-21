@@ -8,7 +8,6 @@ import speech_recognition as sr
 from pydub import AudioSegment
 import imageio_ffmpeg
 
-# Налаштовуємо конвертер звуку без встановлення системних програм
 AudioSegment.converter = imageio_ffmpeg.get_ffmpeg_exe()
 
 TOKEN = "8700228403:AAESsiqBgXkBZFbm6RhQbDuJpp7zF51hCmc"
@@ -19,43 +18,36 @@ dp = Dispatcher()
 def transcribe_audio_file(ogg_path: str) -> str:
     wav_path = ogg_path + ".wav"
     try:
-        # Конвертуємо OGG (Telegram) у WAV
         sound = AudioSegment.from_file(ogg_path, format="ogg")
         sound.export(wav_path, format="wav")
 
-        # Розпізнаємо текст через безкоштовний сервіс Google (українська мова)
         recognizer = sr.Recognizer()
         with sr.AudioFile(wav_path) as source:
             audio_data = recognizer.record(source)
             text = recognizer.recognize_google(audio_data, language="uk-UA")
             return text
     except sr.UnknownValueError:
-        return "⚠️ Не вдалося розпізнати мовлення (можливо, звук надто тихий або є шуми)."
+        return "⚠️ Не вдалося розпізнати мовлення."
     except sr.RequestError as e:
         return f"⚠️ Помилка сервісу розпізнавання: {e}"
     except Exception as e:
         return f"⚠️ Помилка обробки аудіо: {e}"
     finally:
-        # Видаляємо тимчасовий WAV-файл
         if os.path.exists(wav_path):
             os.remove(wav_path)
 
 @dp.message(F.voice)
 async def handle_voice(message: types.Message):
     status_msg = await message.reply("⏳ Розпізнаю голосове повідомлення...")
-    
     ogg_path = None
     try:
-        # Отримуємо файл від Telegram
         file_id = message.voice.file_id
         file_info = await bot.get_file(file_id)
         file_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_info.file_path}"
 
-        # Створюємо тимчасовий файл для запису
         with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp_file:
             ogg_path = tmp_file.name
 
-        # Скачуємо аудіо
         async with aiohttp.ClientSession() as session:
             async with session.get(file_url) as resp:
                 if resp.status == 200:
@@ -63,15 +55,11 @@ async def handle_voice(message: types.Message):
                     with open(ogg_path, "wb") as f:
                         f.write(content)
                 else:
-                    await status_msg.edit_text("❌ Не вдалося завантажити файл з серверів Telegram.")
+                    await status_msg.edit_text("❌ Помилка завантаження файлу.")
                     return
 
-        # Запускаємо обробку у фоновому потоці
         transcribed_text = await asyncio.to_thread(transcribe_audio_file, ogg_path)
-
-        # Відправляємо розшифровку у чат
-        response_text = f"🗣 **Розшифровка:**\n\n{transcribed_text}"
-        await message.reply(response_text, parse_mode="Markdown")
+        await message.reply(f"🗣 **Розшифровка:**\n\n{transcribed_text}", parse_mode="Markdown")
 
     except Exception as e:
         await message.reply(f"❌ Виникла помилка: {str(e)}")
@@ -85,8 +73,10 @@ async def handle_voice(message: types.Message):
 
 async def main():
     logging.basicConfig(level=logging.INFO)
-    print("Бот розпізнавання мови запущено!")
+    print("Бот запускається...")
+    # Примусово скидаємо старі вебхуки, щоб уникнути конфліктів сесій
+    await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+        asyncio.run(main())
