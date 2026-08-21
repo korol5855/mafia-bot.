@@ -3,3 +3,4 @@ SpeechRecognition
 pydub
 imageio-ffmpeg
 aiohttp
+groq
