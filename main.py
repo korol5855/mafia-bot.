@@ -1,6 +1,6 @@
 import os
-import logging
 import asyncio
+import logging
 
 from telegram import Update
 from telegram.ext import (
@@ -26,17 +26,15 @@ if not GROQ_API_KEY:
     raise RuntimeError("Не знайдено GROQ_API_KEY")
 
 
-# Groq async client
+# Підключення до Groq
 client = AsyncGroq(api_key=GROQ_API_KEY)
 
 
-# Максимальний розмір файлу.
-# Telegram Bot API має обмеження на завантаження файлів.
+# Максимальний розмір аудіофайлу
 MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
 
 
-# Скільки голосових можемо обробляти одночасно.
-# 3 — хороший баланс для невеликого бота.
+# Максимум 3 голосових одночасно
 transcription_semaphore = asyncio.Semaphore(3)
 
 
@@ -45,21 +43,21 @@ transcription_semaphore = asyncio.Semaphore(3)
 # ============================================================
 
 logging.basicConfig(
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    format="%(asctime)s | %(levelname)s | %(message)s",
     level=logging.INFO,
 )
 
-logger = logging.getLogger("voice_transcriber")
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
-# ДОПОМІЖНІ ФУНКЦІЇ
+# РОЗБИВАЄМО ДОВГИЙ ТЕКСТ
 # ============================================================
 
 def split_text(text: str, max_length: int = 4000) -> list[str]:
     """
     Telegram має обмеження на довжину повідомлення.
-    Ділимо довгий текст приблизно по 4000 символів.
+    Якщо текст дуже довгий — ділимо його на частини.
     """
 
     if len(text) <= max_length:
@@ -68,18 +66,20 @@ def split_text(text: str, max_length: int = 4000) -> list[str]:
     parts = []
 
     while len(text) > max_length:
-        # Намагатимемося розділити по переносу рядка
+
+        # Спочатку намагаємося розділити по переносу рядка
         split_at = text.rfind("\n", 0, max_length)
 
-        # Якщо переносу немає — шукаємо пробіл
+        # Якщо немає — по пробілу
         if split_at == -1:
             split_at = text.rfind(" ", 0, max_length)
 
-        # Якщо й пробілу немає — ріжемо жорстко
+        # Якщо взагалі немає де нормально розділити
         if split_at == -1:
             split_at = max_length
 
         parts.append(text[:split_at].strip())
+
         text = text[split_at:].strip()
 
     if text:
@@ -88,35 +88,35 @@ def split_text(text: str, max_length: int = 4000) -> list[str]:
     return parts
 
 
-def get_audio_info(message):
-    """
-    Визначає, що саме прийшло:
-    Telegram voice або audio.
-    """
+# ============================================================
+# ОТРИМАННЯ ІНФОРМАЦІЇ ПРО АУДІО
+# ============================================================
 
+def get_audio_info(message):
+
+    # Telegram Voice
     if message.voice:
+
         return {
             "file_id": message.voice.file_id,
             "file_size": message.voice.file_size,
             "file_name": "voice.ogg",
-            "type": "voice",
         }
 
+    # Звичайний аудіофайл
     if message.audio:
-        filename = message.audio.file_name or "audio.mp3"
 
         return {
             "file_id": message.audio.file_id,
             "file_size": message.audio.file_size,
-            "file_name": filename,
-            "type": "audio",
+            "file_name": message.audio.file_name or "audio.mp3",
         }
 
     return None
 
 
 # ============================================================
-# ОСНОВНА ОБРОБКА
+# ОБРОБКА ГОЛОСОВОГО
 # ============================================================
 
 async def handle_voice(
@@ -142,43 +142,44 @@ async def handle_voice(
     file_size = audio_info["file_size"]
 
     if file_size and file_size > MAX_FILE_SIZE:
+
         await message.reply_text(
             "❌ Файл занадто великий.\n\n"
-            "Максимальний розмір для обробки — 20 МБ."
+            "Максимальний розмір — 20 МБ."
         )
+
         return
 
 
+    # --------------------------------------------------------
+    # Лог
+    # --------------------------------------------------------
+
     user = message.from_user
 
-    username = (
-        f"@{user.username}"
-        if user and user.username
-        else str(user.id) if user else "unknown"
-    )
+    if user:
+
+        username = (
+            f"@{user.username}"
+            if user.username
+            else str(user.id)
+        )
+
+    else:
+
+        username = "unknown"
+
 
     logger.info(
-        "Нове аудіо від %s | type=%s | size=%s",
+        "Нове голосове від %s",
         username,
-        audio_info["type"],
-        file_size,
-    )
-
-
-    # --------------------------------------------------------
-    # Повідомлення про обробку
-    # --------------------------------------------------------
-
-    processing_message = await message.reply_text(
-        "🎧 Обробляю голосове повідомлення...\n"
-        "⏳ Зачекай кілька секунд."
     )
 
 
     try:
 
         # ----------------------------------------------------
-        # Обмежуємо кількість одночасних запитів до Groq
+        # Обмежуємо кількість одночасних запитів
         # ----------------------------------------------------
 
         async with transcription_semaphore:
@@ -188,109 +189,82 @@ async def handle_voice(
                 audio_info["file_id"]
             )
 
-            # Завантажуємо байти
+            # Завантажуємо його
             file_bytes = await telegram_file.download_as_bytearray()
 
+
             logger.info(
-                "Файл завантажено | %s | %d bytes",
-                username,
+                "Файл завантажено: %d байт",
                 len(file_bytes),
             )
 
 
             # ------------------------------------------------
-            # Розшифровка
+            # РОЗШИФРОВКА GROQ
             # ------------------------------------------------
 
             transcription = await client.audio.transcriptions.create(
+
                 file=(
                     audio_info["file_name"],
                     bytes(file_bytes),
                 ),
+
                 model="whisper-large-v3",
+
                 response_format="text",
             )
 
 
-        # Перетворюємо результат у звичайний текст
+        # ----------------------------------------------------
+        # Готовий текст
+        # ----------------------------------------------------
+
         text = str(transcription).strip()
 
 
         if not text:
-            await processing_message.edit_text(
-                "🤔 Не вдалося розібрати голосове повідомлення.\n\n"
-                "Спробуй записати його ще раз, бажано трохи чіткіше."
+
+            await message.reply_text(
+                "Не вдалося розпізнати голосове повідомлення."
             )
+
             return
 
 
         logger.info(
-            "Розшифровка готова | %s | %d символів",
-            username,
+            "Розшифровка готова: %d символів",
             len(text),
         )
 
 
         # ----------------------------------------------------
-        # Прибираємо повідомлення "обробляю"
-        # ----------------------------------------------------
-
-        await processing_message.delete()
-
-
-        # ----------------------------------------------------
-        # Виводимо результат
+        # ВІДПРАВЛЯЄМО ТЕКСТ
         # ----------------------------------------------------
 
         parts = split_text(text)
 
 
-        # Якщо текст короткий — одне красиве повідомлення
-        if len(parts) == 1:
+        for part in parts:
 
             await message.reply_text(
-                "📝 Розшифровка:\n\n"
-                f"{parts[0]}"
+                part
             )
-
-        else:
-
-            await message.reply_text(
-                "📝 Розшифровка:\n\n"
-                f"{parts[0]}"
-            )
-
-            for index, part in enumerate(parts[1:], start=2):
-
-                await message.reply_text(
-                    f"📝 Продовження ({index}/{len(parts)}):\n\n"
-                    f"{part}"
-                )
 
 
     except Exception as e:
 
         logger.exception(
-            "Помилка при обробці голосового від %s",
-            username,
+            "Помилка під час розшифровки"
         )
 
-        try:
-            await processing_message.edit_text(
-                "❌ Не вдалося розшифрувати голосове.\n\n"
-                "Спробуй ще раз."
-            )
-
-        except Exception:
-            # Якщо повідомлення вже було видалене/змінене
-            await message.reply_text(
-                "❌ Не вдалося розшифрувати голосове.\n\n"
-                "Спробуй ще раз."
-            )
+        await message.reply_text(
+            "❌ Не вдалося розшифрувати голосове повідомлення."
+        )
 
 
 # ============================================================
-# ПОМИЛКИ TELEGRAM
+# ОБРОБНИК ПОМИЛОК
 # ============================================================
 
 async def error_handler(
@@ -305,12 +279,12 @@ async def error_handler(
 
 
 # ============================================================
-# ЗАПУСК
+# ЗАПУСК БОТА
 # ============================================================
 
 def main():
 
-    logger.info("Запускаємо Pigeon Transcriber...")
+    logger.info("Запуск бота...")
 
 
     app = (
@@ -339,13 +313,18 @@ def main():
     )
 
 
-    # Глобальний обробник помилок
-    app.add_error_handler(error_handler)
+    # Обробник помилок
+    app.add_error_handler(
+        error_handler
+    )
 
 
-    logger.info("Бот успішно запущений 🚀")
+    logger.info(
+        "Бот запущено 🚀"
+    )
 
 
+    # Запускаємо polling
     app.run_polling()
 
 
