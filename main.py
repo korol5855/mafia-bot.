@@ -4,7 +4,6 @@ import asyncio
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from groq import Groq
-from pydub import AudioSegment
 
 # Перевірка наявності токенів
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -24,28 +23,20 @@ dp = Dispatcher()
 groq_client = Groq(api_key=GROQ_API_KEY)
 
 async def process_voice_file(file_path: str) -> str:
-    """Конвертує аудіо у MP3/WAV та відправляє на розшифровку в Groq Whisper"""
-    mp3_path = file_path + ".mp3"
+    """Відправляє оригінальний аудіофайл напряму в Groq Whisper без конвертації"""
     try:
-        # Конвертуємо через pydub у стандартний компактний формат
-        audio = AudioSegment.from_file(file_path)
-        audio.export(mp3_path, format="mp3")
-
-        # Відправляємо до Groq Whisper API
-        with open(mp3_path, "rb") as file_to_transcribe:
+        with open(file_path, "rb") as file_to_transcribe:
             transcription = groq_client.audio.transcriptions.create(
-                file=(mp3_path, file_to_transcribe.read()),
+                file=(file_path, file_to_transcribe.read()),
                 model="whisper-large-v3",
-                language="uk",  # Можна вказати українську для кращого пріоритету
+                language="uk",
                 temperature=0.0
             )
             return transcription.text
     finally:
-        # Прибираємо тимчасові файли
+        # Прибираємо тимчасовий файл
         if os.path.exists(file_path):
             os.remove(file_path)
-        if os.path.exists(mp3_path):
-            os.remove(mp3_path)
 
 @dp.message(F.voice)
 async def handle_voice(message: Message):
