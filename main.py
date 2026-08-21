@@ -54,9 +54,9 @@ async def handle_voice(message: Message):
         # Транскрибуємо
         text = await process_voice_file(file_path)
 
-        # Видаляємо статусне повідомлення та надсилаємо результат
+        # Видаляємо статусне повідомлення та надсилаємо результат чистим текстом
         await processing_msg.delete()
-        await message.reply(f"🗣 **Розшифровка:**\n\n{text}")
+        await message.reply(f"🗣 Розшифровка:\n\n{text}")
 
     except Exception as e:
         logging.error(f"Помилка розшифровки: {e}")
@@ -67,7 +67,7 @@ async def handle_voice(message: Message):
         ])
         
         await processing_msg.edit_text(
-            "⚠️ Не вдалося розшифрувати голосове повідомлення (можливо, тимчасова проблема з API).",
+            "⚠️ Не вдалося розшифрувати голосове повідомлення (можливо, тимчасова проблема з API або занадто коротке аудіо).",
             reply_markup=keyboard
         )
 
@@ -84,7 +84,7 @@ async def retry_transcription(callback: CallbackQuery):
 
         text = await process_voice_file(file_path)
         
-        await callback.message.edit_text(f"🗣 **Розшифровка (повторна спроба):**\n\n{text}")
+        await callback.message.edit_text(f"🗣 Розшифровка (повторна спроба):\n\n{text}")
     except Exception as e:
         logging.error(f"Помилка при повторній спробі: {e}")
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
