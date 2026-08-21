@@ -4,15 +4,20 @@ import os
 import tempfile
 import aiohttp
 from aiogram import Bot, Dispatcher, F, types
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
 import speech_recognition as sr
 from pydub import AudioSegment
 import imageio_ffmpeg
 
 AudioSegment.converter = imageio_ffmpeg.get_ffmpeg_exe()
 
-TOKEN = "8700228403:AAESsiqBgXkBZFbm6RhQbDuJpp7zF51hCmc"
+# Забираємо токен із змінних середовища Render
+TOKEN = os.getenv("BOT_TOKEN")
+if not TOKEN:
+    raise RuntimeError("BOT_TOKEN не знайдено в середовищі!")
 
-bot = Bot(token=TOKEN)
+bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
 dp = Dispatcher()
 
 def transcribe_audio_file(ogg_path: str) -> str:
@@ -59,7 +64,7 @@ async def handle_voice(message: types.Message):
                     return
 
         transcribed_text = await asyncio.to_thread(transcribe_audio_file, ogg_path)
-        await message.reply(f"🗣 **Розшифровка:**\n\n{transcribed_text}", parse_mode="Markdown")
+        await message.reply(f"🗣 **Розшифровка:**\n\n{transcribed_text}")
 
     except Exception as e:
         await message.reply(f"❌ Виникла помилка: {str(e)}")
@@ -74,9 +79,8 @@ async def handle_voice(message: types.Message):
 async def main():
     logging.basicConfig(level=logging.INFO)
     print("Бот запускається...")
-    # Примусово скидаємо старі вебхуки, щоб уникнути конфліктів сесій
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-        asyncio.run(main())
+    asyncio.run(main())
