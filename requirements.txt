@@ -1,6 +1,3 @@
-aiogram
-SpeechRecognition
-pydub
-imageio-ffmpeg
-aiohttp
+python-telegram-bot
 groq
+httpx
