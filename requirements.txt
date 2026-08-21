@@ -1,5 +1,4 @@
 aiogram>=3.13.0
-SpeechRecognition==3.10.4
 pydub==0.25.1
 imageio-ffmpeg==0.5.1
 aiohttp>=3.9.0
