@@ -18,14 +18,12 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file_bytes = await file.download_as_bytearray()
 
     try:
-        # Надсилаємо напряму .ogg без ffmpeg, а також видаляємо примусовий переклад, 
-        # тепер модель розпізнаватиме мову оригіналу.
+        # Фіксуємо українську мову, щоб модель не перекладала голосові на російську
         transcription = client.audio.transcriptions.create(
             file=("voice.ogg", bytes(file_bytes)),
             model="whisper-large-v3",
+            language="uk",
             response_format="text"
-            # Якщо хочеш жорстко зафіксувати українську, можна додати language="uk", 
-            # але зараз параметр не вказано, тому модель визначатиме мову автоматично і писатиме нею ж.
         )
         
         await update.message.reply_text(f"🗣 Розшифровка:\n\n{transcription}")
