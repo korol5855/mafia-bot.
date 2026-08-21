@@ -10,11 +10,13 @@ import speech_recognition as sr
 from pydub import AudioSegment
 import imageio_ffmpeg
 
+# Налаштування конвертера для роботи на Render
 AudioSegment.converter = imageio_ffmpeg.get_ffmpeg_exe()
 
+# Отримання токена з налаштувань Render
 TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN:
-    raise RuntimeError("BOT_TOKEN не знайдено в середовищі!")
+    raise RuntimeError("BOT_TOKEN не знайдено в налаштуваннях середовища!")
 
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
 dp = Dispatcher()
@@ -22,6 +24,7 @@ dp = Dispatcher()
 def transcribe_audio_file(ogg_path: str) -> str:
     wav_path = ogg_path + ".wav"
     try:
+        # Конвертація в wav
         sound = AudioSegment.from_file(ogg_path, format="ogg")
         sound.export(wav_path, format="wav")
 
@@ -29,19 +32,20 @@ def transcribe_audio_file(ogg_path: str) -> str:
         with sr.AudioFile(wav_path) as source:
             audio_data = recognizer.record(source)
             
-            # Спроба 1: Українська мова
+            # Спробуємо розпізнати: пріоритет на ru-RU (краще підходить для суржику та коротких фраз)
             try:
-                return recognizer.recognize_google(audio_data, language="uk-UA")
-            except sr.UnknownValueError:
-                # Спроба 2: Якщо не розпізнало українською, пробуємо російську (для суржику)
                 return recognizer.recognize_google(audio_data, language="ru-RU")
+            except sr.UnknownValueError:
+                # Якщо не вийшло, пробуємо uk-UA
+                try:
+                    return recognizer.recognize_google(audio_data, language="uk-UA")
+                except:
+                    return "⚠️ Не вдалося розпізнати мову."
+            except Exception:
+                return "⚠️ Помилка розпізнавання."
 
-    except sr.UnknownValueError:
-        return "⚠️ Не вдалося розпізнати мовлення."
-    except sr.RequestError as e:
-        return f"⚠️ Помилка сервісу розпізнавання: {e}"
     except Exception as e:
-        return f"⚠️ Помилка обробки аудіо: {e}"
+        return f"⚠️ Помилка обробки: {e}"
     finally:
         if os.path.exists(wav_path):
             os.remove(wav_path)
@@ -50,6 +54,7 @@ def transcribe_audio_file(ogg_path: str) -> str:
 async def handle_voice(message: types.Message):
     ogg_path = None
     try:
+        # Отримання файлу з Telegram
         file_id = message.voice.file_id
         file_info = await bot.get_file(file_id)
         file_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_info.file_path}"
@@ -66,11 +71,12 @@ async def handle_voice(message: types.Message):
                 else:
                     return
 
+        # Переклад (без статусних повідомлень)
         transcribed_text = await asyncio.to_thread(transcribe_audio_file, ogg_path)
         await message.reply(f"🗣 **Розшифровка:**\n\n{transcribed_text}")
 
     except Exception as e:
-        print(f"Помилка: {e}")
+        print(f"Помилка в обробці: {e}")
     finally:
         if ogg_path and os.path.exists(ogg_path):
             os.remove(ogg_path)
@@ -78,6 +84,7 @@ async def handle_voice(message: types.Message):
 async def main():
     logging.basicConfig(level=logging.INFO)
     print("Бот запущено!")
+    # Скидаємо вебхуки, щоб уникнути конфліктів
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
