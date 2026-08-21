@@ -1,53 +1,51 @@
-﻿import asyncio
 import os
+import telebot
 import speech_recognition as sr
-from aiogram import Bot, Dispatcher, F, types
 
-TOKEN = "8700228403:AAESsiqBgXkBZFbm6RhQbDuJpp7zF51hCmc"
-
-bot = Bot(token=TOKEN)
-dp = Dispatcher()
+TOKEN = "8700228403:AAESsiqBgXKZFBm6RhQbDuJpp7zF51hCmc"
+bot = telebot.TeleBot(TOKEN)
 recognizer = sr.Recognizer()
 
-@dp.message(F.voice)
-async def handle_voice(message: types.Message):
-    processing_msg = await message.reply("⏳ Перетворюю голос у текст...")
-    
-    file = await bot.get_file(message.voice.file_id)
-    ogg_path = f"voice_{message.voice.file_id}.ogg"
-    wav_path = f"voice_{message.voice.file_id}.wav"
-    
-    # Скачуємо голосове повідомлення
-    await bot.download(file, destination=ogg_path)
-    
-    # Конвертуємо у формат WAV
-    os.system(f"ffmpeg -i {ogg_path} {wav_path}")
+@bot.message_handler(content_types=['voice'])
+def handle_voice(message):
+    processing_msg = bot.reply_to(message, "⏳ Перетворюю голос у текст...")
     
     try:
-        # Розпізнаємо голос українською мовою безкоштовно через Google
+        # Отримуємо файл з Telegram
+        file_info = bot.get_file(message.voice.file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+        
+        ogg_path = f"voice_{message.voice.file_id}.ogg"
+        wav_path = f"voice_{message.voice.file_id}.wav"
+        
+        with open(ogg_path, 'wb') as new_file:
+            new_file.write(downloaded_file)
+            
+        # Конвертуємо через ffmpeg
+        os.system(f"ffmpeg -i {ogg_path} {wav_path}")
+        
+        # Розпізнаємо через Google
         with sr.AudioFile(wav_path) as source:
             audio_data = recognizer.record(source)
             text = recognizer.recognize_google(audio_data, language="uk-UA")
             
             user_name = message.from_user.first_name
-            await message.reply(f"🎙 **{user_name}:**\n{text}")
+            bot.reply_to(message, f"🎙 **{user_name}:**\n{text}")
             
     except Exception as e:
-        await message.reply("❌ Не вдалося розпізнати голосове повідомлення.")
-    
+        bot.reply_to(message, "❌ Не вдалося розпізнати голосове повідомлення.")
+        print(f"Error: {e}")
+        
     finally:
+        # Прибираємо сміття
         if os.path.exists(ogg_path): 
             os.remove(ogg_path)
         if os.path.exists(wav_path): 
             os.remove(wav_path)
         try:
-            await processing_msg.delete()
+            bot.delete_message(message.chat.id, processing_msg.message_id)
         except:
             pass
 
-async def main():
-    print("Бот запущено!")
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
+print("Бот запущено!")
+bot.infinity_polling()
