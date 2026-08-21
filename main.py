@@ -12,7 +12,6 @@ import imageio_ffmpeg
 
 AudioSegment.converter = imageio_ffmpeg.get_ffmpeg_exe()
 
-# Забираємо токен із змінних середовища Render
 TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN:
     raise RuntimeError("BOT_TOKEN не знайдено в середовищі!")
@@ -29,8 +28,14 @@ def transcribe_audio_file(ogg_path: str) -> str:
         recognizer = sr.Recognizer()
         with sr.AudioFile(wav_path) as source:
             audio_data = recognizer.record(source)
-            text = recognizer.recognize_google(audio_data, language="uk-UA")
-            return text
+            
+            # Спроба 1: Українська мова
+            try:
+                return recognizer.recognize_google(audio_data, language="uk-UA")
+            except sr.UnknownValueError:
+                # Спроба 2: Якщо не розпізнало українською, пробуємо російську (для суржику)
+                return recognizer.recognize_google(audio_data, language="ru-RU")
+
     except sr.UnknownValueError:
         return "⚠️ Не вдалося розпізнати мовлення."
     except sr.RequestError as e:
@@ -43,7 +48,6 @@ def transcribe_audio_file(ogg_path: str) -> str:
 
 @dp.message(F.voice)
 async def handle_voice(message: types.Message):
-    status_msg = await message.reply("⏳ Розпізнаю голосове повідомлення...")
     ogg_path = None
     try:
         file_id = message.voice.file_id
@@ -60,25 +64,20 @@ async def handle_voice(message: types.Message):
                     with open(ogg_path, "wb") as f:
                         f.write(content)
                 else:
-                    await status_msg.edit_text("❌ Помилка завантаження файлу.")
                     return
 
         transcribed_text = await asyncio.to_thread(transcribe_audio_file, ogg_path)
         await message.reply(f"🗣 **Розшифровка:**\n\n{transcribed_text}")
 
     except Exception as e:
-        await message.reply(f"❌ Виникла помилка: {str(e)}")
+        print(f"Помилка: {e}")
     finally:
-        try:
-            await status_msg.delete()
-        except Exception:
-            pass
         if ogg_path and os.path.exists(ogg_path):
             os.remove(ogg_path)
 
 async def main():
     logging.basicConfig(level=logging.INFO)
-    print("Бот запускається...")
+    print("Бот запущено!")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
