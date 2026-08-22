@@ -1,6 +1,7 @@
 import os
 import asyncio
 import logging
+import html
 
 from telegram import Update
 from telegram.ext import (
@@ -26,9 +27,13 @@ if not GROQ_API_KEY:
     raise RuntimeError("Не знайдено GROQ_API_KEY")
 
 
+# Groq
 client = AsyncGroq(api_key=GROQ_API_KEY)
 
+
+# Максимальний розмір аудіофайлу
 MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
+
 
 # Максимум 3 розшифровки одночасно
 transcription_semaphore = asyncio.Semaphore(3)
@@ -59,15 +64,21 @@ def split_text(text: str, max_length: int = 4000) -> list[str]:
 
     while len(text) > max_length:
 
+        # Спочатку шукаємо перенос рядка
         split_at = text.rfind("\n", 0, max_length)
 
+        # Якщо немає — шукаємо пробіл
         if split_at == -1:
             split_at = text.rfind(" ", 0, max_length)
 
+        # Якщо немає навіть пробілу — ріжемо примусово
         if split_at == -1:
             split_at = max_length
 
-        parts.append(text[:split_at].strip())
+        parts.append(
+            text[:split_at].strip()
+        )
+
         text = text[split_at:].strip()
 
     if text:
@@ -97,17 +108,20 @@ def get_audio_info(message):
         return {
             "file_id": message.audio.file_id,
             "file_size": message.audio.file_size,
-            "file_name": message.audio.file_name or "audio.mp3",
+            "file_name": (
+                message.audio.file_name
+                or "audio.mp3"
+            ),
         }
 
     return None
 
 
 # ============================================================
-# РОЗШИФРОВКА
+# РОЗШИФРОВКА ТА ВІДПОВІДЬ
 # ============================================================
 
-async def process_and_reply(
+async def transcribe_and_reply(
     target_message,
     audio_info,
     context: ContextTypes.DEFAULT_TYPE,
@@ -115,8 +129,9 @@ async def process_and_reply(
 
     file_size = audio_info["file_size"]
 
+
     # --------------------------------------------------------
-    # Перевірка розміру
+    # ПЕРЕВІРКА РОЗМІРУ
     # --------------------------------------------------------
 
     if file_size and file_size > MAX_FILE_SIZE:
@@ -129,13 +144,13 @@ async def process_and_reply(
         return
 
 
+    # --------------------------------------------------------
+    # АВТОМАТИЧНІ ПОВТОРИ
+    # --------------------------------------------------------
+
     max_retries = 3
     text = None
 
-
-    # --------------------------------------------------------
-    # Автоматичні повторні спроби
-    # --------------------------------------------------------
 
     for attempt in range(max_retries):
 
@@ -148,8 +163,11 @@ async def process_and_reply(
                     audio_info["file_id"]
                 )
 
+
                 # Завантажуємо файл
-                file_bytes = await telegram_file.download_as_bytearray()
+                file_bytes = (
+                    await telegram_file.download_as_bytearray()
+                )
 
 
                 logger.info(
@@ -162,19 +180,21 @@ async def process_and_reply(
                 # GROQ WHISPER
                 # ------------------------------------------------
 
-                transcription = await client.audio.transcriptions.create(
+                transcription = (
+                    await client.audio.transcriptions.create(
 
-                    file=(
-                        audio_info["file_name"],
-                        bytes(file_bytes),
-                    ),
+                        file=(
+                            audio_info["file_name"],
+                            bytes(file_bytes),
+                        ),
 
-                    model="whisper-large-v3",
+                        model="whisper-large-v3",
 
-                    response_format="text",
+                        response_format="text",
 
-                    # Більш стабільний результат
-                    temperature=0.0,
+                        # Зменшує випадковість результату
+                        temperature=0.0,
+                    )
                 )
 
 
@@ -200,12 +220,12 @@ async def process_and_reply(
                 raise
 
 
-            # Чекаємо перед повтором
+            # Пауза перед повтором
             await asyncio.sleep(1.5)
 
 
     # --------------------------------------------------------
-    # Якщо текст порожній
+    # ПОРОЖНІЙ РЕЗУЛЬТАТ
     # --------------------------------------------------------
 
     if not text:
@@ -224,7 +244,7 @@ async def process_and_reply(
 
 
     # --------------------------------------------------------
-    # ВІДПРАВЛЯЄМО ТІЛЬКИ ТЕКСТ
+    # ВІДПРАВЛЕННЯ ТЕКСТУ ПІД СПОЙЛЕРОМ
     # --------------------------------------------------------
 
     parts = split_text(text)
@@ -232,8 +252,19 @@ async def process_and_reply(
 
     for part in parts:
 
+        # Захищаємо HTML-розмітку
+        escaped_part = html.escape(part)
+
+
+        # Telegram spoiler
+        spoiled_text = (
+            f"<tg-spoiler>{escaped_part}</tg-spoiler>"
+        )
+
+
         await target_message.reply_text(
-            part
+            spoiled_text,
+            parse_mode="HTML",
         )
 
 
@@ -259,7 +290,7 @@ async def handle_voice(
 
 
     # --------------------------------------------------------
-    # Логування користувача
+    # ЛОГУВАННЯ
     # --------------------------------------------------------
 
     user = message.from_user
@@ -278,18 +309,18 @@ async def handle_voice(
 
 
     logger.info(
-        "Нове голосове від %s",
+        "Нове аудіо від %s",
         username,
     )
 
 
     # --------------------------------------------------------
-    # Обробляємо
+    # ОБРОБКА
     # --------------------------------------------------------
 
     try:
 
-        await process_and_reply(
+        await transcribe_and_reply(
             message,
             audio_info,
             context,
@@ -298,11 +329,12 @@ async def handle_voice(
     except Exception:
 
         logger.exception(
-            "Помилка під час обробки голосового"
+            "Помилка під час розшифровки"
         )
 
         await message.reply_text(
-            "❌ Не вдалося розшифрувати голосове повідомлення."
+            "❌ Не вдалося розшифрувати "
+            "голосове повідомлення."
         )
 
 
@@ -322,7 +354,7 @@ async def error_handler(
 
 
 # ============================================================
-# ЗАПУСК
+# ЗАПУСК БОТА
 # ============================================================
 
 def main():
@@ -358,7 +390,7 @@ def main():
     )
 
 
-    # Глобальні помилки
+    # Глобальний обробник помилок
     app.add_error_handler(
         error_handler
     )
