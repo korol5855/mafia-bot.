@@ -64,10 +64,10 @@ def split_text(text: str, max_length: int = 4000) -> list[str]:
 
     while len(text) > max_length:
 
-        # Спочатку шукаємо перенос рядка
+        # Спочатку намагаємося розділити по переносу рядка
         split_at = text.rfind("\n", 0, max_length)
 
-        # Якщо немає — шукаємо пробіл
+        # Якщо немає — по пробілу
         if split_at == -1:
             split_at = text.rfind(" ", 0, max_length)
 
@@ -131,7 +131,7 @@ async def transcribe_and_reply(
 
 
     # --------------------------------------------------------
-    # ПЕРЕВІРКА РОЗМІРУ
+    # ПЕРЕВІРКА РОЗМІРУ ЗА ДАНИМИ TELEGRAM
     # --------------------------------------------------------
 
     if file_size and file_size > MAX_FILE_SIZE:
@@ -144,13 +144,13 @@ async def transcribe_and_reply(
         return
 
 
-    # --------------------------------------------------------
-    # АВТОМАТИЧНІ ПОВТОРИ
-    # --------------------------------------------------------
-
     max_retries = 3
     text = None
 
+
+    # --------------------------------------------------------
+    # АВТОМАТИЧНІ ПОВТОРИ
+    # --------------------------------------------------------
 
     for attempt in range(max_retries):
 
@@ -174,6 +174,20 @@ async def transcribe_and_reply(
                     "Файл завантажено: %d байт",
                     len(file_bytes),
                 )
+
+
+                # ------------------------------------------------
+                # ПЕРЕВІРКА ФАКТИЧНОГО РОЗМІРУ
+                # ------------------------------------------------
+
+                if len(file_bytes) > MAX_FILE_SIZE:
+
+                    await target_message.reply_text(
+                        "❌ Файл занадто великий.\n\n"
+                        "Максимальний розмір — 20 МБ."
+                    )
+
+                    return
 
 
                 # ------------------------------------------------
@@ -220,7 +234,7 @@ async def transcribe_and_reply(
                 raise
 
 
-            # Пауза перед повтором
+            # Пауза перед повторною спробою
             await asyncio.sleep(1.5)
 
 
@@ -244,7 +258,7 @@ async def transcribe_and_reply(
 
 
     # --------------------------------------------------------
-    # ВІДПРАВЛЕННЯ ТЕКСТУ ПІД СПОЙЛЕРОМ
+    # ВІДПРАВЛЕННЯ ТЕКСТУ У ЗГОРНУТОМУ БЛОЦІ
     # --------------------------------------------------------
 
     parts = split_text(text)
@@ -252,18 +266,20 @@ async def transcribe_and_reply(
 
     for part in parts:
 
-        # Захищаємо HTML-розмітку
+        # Захищаємо HTML
         escaped_part = html.escape(part)
 
 
-        # Telegram spoiler
-        spoiled_text = (
-            f"<tg-spoiler>{escaped_part}</tg-spoiler>"
+        # Нативний expandable blockquote Telegram
+        expandable_quote = (
+            f"<blockquote expandable>"
+            f"{escaped_part}"
+            f"</blockquote>"
         )
 
 
         await target_message.reply_text(
-            spoiled_text,
+            expandable_quote,
             parse_mode="HTML",
         )
 
@@ -290,7 +306,7 @@ async def handle_voice(
 
 
     # --------------------------------------------------------
-    # ЛОГУВАННЯ
+    # ЛОГУВАННЯ КОРИСТУВАЧА
     # --------------------------------------------------------
 
     user = message.from_user
